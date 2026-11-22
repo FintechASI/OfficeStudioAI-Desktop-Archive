@@ -13,8 +13,8 @@
  *   with this work for additional information regarding copyright
  *   ownership. The ASF licenses this file to you under the Apache
  *   License, Version 2.0 (the "License"); you may not use this file
- *   except in compliance with the License. You may obtain a copy of
- *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+ *   except in compliance with the License. You may obtain a copy of the
+ *   License at http://www.apache.org/licenses/LICENSE-2.0 .
  */
 
 #ifndef INCLUDED_SFX2_SOURCE_DIALOG_BACKINGWINDOW_HXX
@@ -45,6 +45,18 @@
 #include <memory>
 
 class BrandImage;
+class SidebarNavWidget;
+class CreateCardsWidget;
+class RecentHeaderWidget;
+class HomeRecentListWidget;
+class FooterWidget;
+
+enum class StartCenterMode
+{
+    Home,
+    Recent,
+    Templates
+};
 
 class BackingWindow : public InterimItemWindow
 {
@@ -71,8 +83,19 @@ class BackingWindow : public InterimItemWindow
     std::unique_ptr<weld::Button> mxDrawAllButton;
     std::unique_ptr<weld::Button> mxDBAllButton;
     std::unique_ptr<weld::Button> mxMathAllButton;
+
     std::unique_ptr<BrandImage> mxBrandImage;
     std::unique_ptr<weld::CustomWeld> mxBrandImageWeld;
+    std::unique_ptr<SidebarNavWidget> mxSidebarNav;
+    std::unique_ptr<weld::CustomWeld> mxSidebarNavWeld;
+    std::unique_ptr<CreateCardsWidget> mxCreateCards;
+    std::unique_ptr<weld::CustomWeld> mxCreateCardsWeld;
+    std::unique_ptr<RecentHeaderWidget> mxRecentHeader;
+    std::unique_ptr<weld::CustomWeld> mxRecentHeaderWeld;
+    std::unique_ptr<HomeRecentListWidget> mxHomeRecent;
+    std::unique_ptr<weld::CustomWeld> mxHomeRecentWeld;
+    std::unique_ptr<FooterWidget> mxFooter;
+    std::unique_ptr<weld::CustomWeld> mxFooterWeld;
 
     std::unique_ptr<weld::Button> mxHelpButton;
     std::unique_ptr<weld::Button> mxExtensionsButton;
@@ -82,6 +105,10 @@ class BackingWindow : public InterimItemWindow
     std::unique_ptr<weld::Container> mxButtonsBox;
     std::unique_ptr<weld::Container> mxSmallButtonsBox;
     std::unique_ptr<weld::Container> mxRightBox;
+    std::unique_ptr<weld::Container> mxHomeSection;
+    std::unique_ptr<weld::Container> mxActionsGrid;
+    std::unique_ptr<weld::Widget> mxScrollRecent;
+    std::unique_ptr<weld::Widget> mxScrollLocal;
 
     std::unique_ptr<sfx2::RecentDocsView> mxAllRecentThumbnails;
     std::unique_ptr<weld::CustomWeld> mxAllRecentThumbnailsWin;
@@ -95,9 +122,10 @@ class BackingWindow : public InterimItemWindow
     std::unique_ptr<weld::Label> mxDonationBoxText;
 
     bool mbLocalViewInitialized;
+    StartCenterMode meMode;
 
     css::uno::Reference<css::datatransfer::dnd::XDropTarget> mxDropTarget;
-
+    css::uno::Reference<css::datatransfer::dnd::XDropTarget> mxHomeDropTarget;
     bool mbInitControls;
     std::unique_ptr<svt::AcceleratorExecute> mpAccExec;
 
@@ -144,6 +172,15 @@ public:
     void setOwningFrame(const css::uno::Reference<css::frame::XFrame>& xFrame);
 
     void clearRecentFileList();
+
+    void activateMode(StartCenterMode eMode);
+    void triggerOpen();
+    void triggerOpenRemote();
+    void triggerHelp();
+    void triggerAbout();
+    void triggerCreateApp(int nIndex);
+    void openRecentURL(const OUString& rURL, bool bReadOnly);
+    void removeRecentURL(const OUString& rURL);
 };
 
 #endif

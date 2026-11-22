@@ -102,7 +102,7 @@
           <value>private:factory/swriter</value>
         </prop>
         <prop oor:name="Title">
-          <value xml:lang="en-US">~Text Document</value>
+          <value xml:lang="en-US">~Docs</value>
         </prop>
         <prop oor:name="TargetName" oor:type="xs:string">
           <value>_default</value>
@@ -124,7 +124,7 @@
           <value>private:factory/simpress?slot=6686</value>
         </prop>
         <prop oor:name="Title">
-          <value xml:lang="en-US">~Presentation</value>
+          <value xml:lang="en-US">~SlideShows</value>
         </prop>
         <prop oor:name="TargetName" oor:type="xs:string">
           <value>_default</value>
@@ -135,7 +135,7 @@
           <value>private:factory/sdraw</value>
         </prop>
         <prop oor:name="Title">
-          <value xml:lang="en-US">~Drawing</value>
+          <value xml:lang="en-US">~FlowCharts</value>
         </prop>
         <prop oor:name="TargetName" oor:type="xs:string">
           <value>_default</value>

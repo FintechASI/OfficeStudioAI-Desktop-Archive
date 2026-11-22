@@ -20,7 +20,7 @@
 
 #ifndef ENABLE_SILENT_MSI
 FolderItem gid_Folderitem_Sdraw
-    Name = "%PRODUCTNAME Draw";
+    Name = "%PRODUCTNAME FlowCharts";
     ModuleID = gid_Module_Prg_Draw_Bin;
     FolderID = gid_Folder_Staroffice51;
     FileID = auto_draw_brand_exe_sdraw;

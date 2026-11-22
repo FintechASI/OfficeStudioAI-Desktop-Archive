@@ -17,22 +17,22 @@
  */
 
 [STR_NAME_MODULE_PRG_DRAW]
-en-US = "%PRODUCTNAME Draw"
+en-US = "%PRODUCTNAME FlowCharts"
 
 [STR_DESC_MODULE_PRG_DRAW]
-en-US = "Create and edit drawings, flow charts, and logos by using %PRODUCTNAME Draw."
+en-US = "Create and edit drawings, flow charts, and logos by using %PRODUCTNAME FlowCharts."
 
 [STR_NAME_MODULE_PRG_DRAW_BIN]
 en-US = "Program Module"
 
 [STR_DESC_MODULE_PRG_DRAW_BIN]
-en-US = "The application %PRODUCTNAME Draw"
+en-US = "The application %PRODUCTNAME FlowCharts"
 
 [STR_NAME_MODULE_PRG_DRAW_HELP]
-en-US = "%PRODUCTNAME Draw Help"
+en-US = "%PRODUCTNAME FlowCharts Help"
 
 [STR_DESC_MODULE_PRG_DRAW_HELP]
-en-US = "Help about %PRODUCTNAME Draw"
+en-US = "Help about %PRODUCTNAME FlowCharts"
 
 
 

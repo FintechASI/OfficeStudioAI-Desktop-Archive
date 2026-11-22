@@ -85,6 +85,7 @@
     <property name="can-focus">False</property>
     <property name="hexpand">True</property>
     <property name="vexpand">True</property>
+    <property name="orientation">vertical</property>
     <child>
       <object class="GtkBox" id="box1">
         <property name="visible">True</property>
@@ -104,21 +105,44 @@
                 <property name="can-focus">False</property>
                 <property name="orientation">vertical</property>
                 <child>
-                  <object class="GtkBox" id="buttons_box">
-                    <property name="visible">True</property>
+                  <object class="GtkLabel" id="daSidebarNav_label">
                     <property name="can-focus">False</property>
+                    <property name="no-show-all">True</property>
+                    <property name="label" translatable="yes" context="startcenter|daSidebarNav_label">Navigation</property>
+                    <property name="mnemonic-widget">daSidebarNav</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">False</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkDrawingArea" id="daSidebarNav">
+                    <property name="width-request">196</property>
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
                     <property name="vexpand">True</property>
+                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+                  </object>
+                  <packing>
+                    <property name="expand">True</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkBox" id="buttons_box">
+                    <property name="visible">False</property>
+                    <property name="no-show-all">True</property>
+                    <property name="can-focus">False</property>
                     <property name="orientation">vertical</property>
-                    <property name="spacing">3</property>
                     <child>
                       <object class="GtkButton" id="open_all">
                         <property name="label" translatable="yes" context="startcenter|open_all">_Open File</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="margin-top">6</property>
                         <property name="image">open_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
@@ -137,8 +161,6 @@
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
                         <property name="image">open_all_image2</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
@@ -152,11 +174,16 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkSeparator" id="separator3">
+                      <object class="GtkToggleButton" id="open_recent">
+                        <property name="label" translatable="yes" context="startcenter|open_recent">_Recent Documents</property>
                         <property name="visible">True</property>
-                        <property name="can-focus">False</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
+                        <property name="can-focus">True</property>
+                        <property name="receives-default">True</property>
+                        <property name="image">open_all_image1</property>
+                        <property name="relief">none</property>
+                        <property name="use-underline">True</property>
+                        <property name="xalign">0</property>
+                        <property name="always-show-image">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -165,14 +192,12 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkToggleButton" id="open_recent">
-                        <property name="label" translatable="yes" context="startcenter|open_recent">_Recent Documents</property>
+                      <object class="GtkToggleButton" id="templates_all">
+                        <property name="label" translatable="yes" context="startcenter|templates_all">T_emplates</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">open_all_image1</property>
+                        <property name="image">templates_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
                         <property name="xalign">0</property>
@@ -185,18 +210,11 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkToggleButton" id="templates_all">
-                        <property name="label" translatable="yes" context="startcenter|templates_all">T_emplates</property>
+                      <object class="GtkLabel" id="create_label">
                         <property name="visible">True</property>
-                        <property name="can-focus">True</property>
-                        <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">templates_all_image</property>
-                        <property name="relief">none</property>
-                        <property name="use-underline">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes" context="startcenter|create_label">Create:</property>
                         <property name="xalign">0</property>
-                        <property name="always-show-image">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -205,11 +223,16 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkSeparator" id="separator1">
+                      <object class="GtkButton" id="writer_all">
+                        <property name="label" translatable="yes" context="startcenter|writer_all">_Docs</property>
                         <property name="visible">True</property>
-                        <property name="can-focus">False</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
+                        <property name="can-focus">True</property>
+                        <property name="receives-default">True</property>
+                        <property name="image">writer_all_image</property>
+                        <property name="relief">none</property>
+                        <property name="use-underline">True</property>
+                        <property name="xalign">0</property>
+                        <property name="always-show-image">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -218,13 +241,16 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkLabel" id="create_label">
+                      <object class="GtkButton" id="calc_all">
+                        <property name="label" translatable="yes" context="startcenter|calc_all">_Spreadsheet</property>
                         <property name="visible">True</property>
-                        <property name="can-focus">False</property>
-                        <property name="margin-start">12</property>
-                        <property name="margin-bottom">6</property>
-                        <property name="label" translatable="yes" context="startcenter|create_label">Create:</property>
+                        <property name="can-focus">True</property>
+                        <property name="receives-default">True</property>
+                        <property name="image">calc_all_image</property>
+                        <property name="relief">none</property>
+                        <property name="use-underline">True</property>
                         <property name="xalign">0</property>
+                        <property name="always-show-image">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -233,14 +259,12 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkButton" id="writer_all">
-                        <property name="label" translatable="yes" context="startcenter|writer_all">_Writer Document</property>
+                      <object class="GtkButton" id="impress_all">
+                        <property name="label" translatable="yes" context="startcenter|impress_all">_SlideShows</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">writer_all_image</property>
+                        <property name="image">impress_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
                         <property name="xalign">0</property>
@@ -253,14 +277,12 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkButton" id="calc_all">
-                        <property name="label" translatable="yes" context="startcenter|calc_all">_Calc Spreadsheet</property>
+                      <object class="GtkButton" id="draw_all">
+                        <property name="label" translatable="yes" context="startcenter|draw_all">_FlowCharts</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">calc_all_image</property>
+                        <property name="image">draw_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
                         <property name="xalign">0</property>
@@ -273,14 +295,12 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkButton" id="impress_all">
-                        <property name="label" translatable="yes" context="startcenter|impress_all">_Impress Presentation</property>
+                      <object class="GtkButton" id="math_all">
+                        <property name="label" translatable="yes" context="startcenter|math_all">M_ath Formula</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">impress_all_image</property>
+                        <property name="image">math_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
                         <property name="xalign">0</property>
@@ -293,14 +313,12 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkButton" id="draw_all">
-                        <property name="label" translatable="yes" context="startcenter|draw_all">_Draw Drawing</property>
+                      <object class="GtkButton" id="database_all">
+                        <property name="label" translatable="yes" context="startcenter|database_all">_Base Database</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">draw_all_image</property>
+                        <property name="image">database_all_image</property>
                         <property name="relief">none</property>
                         <property name="use-underline">True</property>
                         <property name="xalign">0</property>
@@ -313,46 +331,6 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkButton" id="math_all">
-                        <property name="label" translatable="yes" context="startcenter|math_all">_Math Formula</property>
-                        <property name="visible">True</property>
-                        <property name="can-focus">True</property>
-                        <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">math_all_image</property>
-                        <property name="relief">none</property>
-                        <property name="use-underline">True</property>
-                        <property name="xalign">0</property>
-                        <property name="always-show-image">True</property>
-                      </object>
-                      <packing>
-                        <property name="expand">False</property>
-                        <property name="fill">True</property>
-                        <property name="position">11</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <object class="GtkButton" id="database_all">
-                        <property name="label" translatable="yes" context="startcenter|database_all">_Base Database</property>
-                        <property name="visible">True</property>
-                        <property name="can-focus">True</property>
-                        <property name="receives-default">True</property>
-                        <property name="margin-start">6</property>
-                        <property name="margin-end">6</property>
-                        <property name="image">database_all_image</property>
-                        <property name="relief">none</property>
-                        <property name="use-underline">True</property>
-                        <property name="xalign">0</property>
-                        <property name="always-show-image">True</property>
-                      </object>
-                      <packing>
-                        <property name="expand">False</property>
-                        <property name="fill">True</property>
-                        <property name="position">12</property>
-                      </packing>
-                    </child>
-                    <child>
                       <object class="GtkLabel" id="althelplabel">
                         <property name="can-focus">False</property>
                         <property name="no-show-all">True</property>
@@ -362,36 +340,9 @@
                       <packing>
                         <property name="expand">False</property>
                         <property name="fill">True</property>
-                        <property name="position">15</property>
+                        <property name="position">11</property>
                       </packing>
                     </child>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkDrawingArea" id="daBrand">
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="valign">center</property>
-                    <property name="margin-start">12</property>
-                    <property name="margin-end">12</property>
-                    <property name="margin-bottom">12</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">1</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkSeparator" id="separator2">
-                    <property name="height-request">2</property>
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
                   </object>
                   <packing>
                     <property name="expand">False</property>
@@ -401,14 +352,9 @@
                 </child>
                 <child>
                   <object class="GtkBox" id="small_buttons_box">
-                    <property name="visible">True</property>
+                    <property name="visible">False</property>
+                    <property name="no-show-all">True</property>
                     <property name="can-focus">False</property>
-                    <property name="margin-start">6</property>
-                    <property name="margin-end">6</property>
-                    <property name="margin-top">6</property>
-                    <property name="margin-bottom">6</property>
-                    <property name="spacing">6</property>
-                    <property name="homogeneous">True</property>
                     <child>
                       <object class="GtkButton" id="help">
                         <property name="label" translatable="yes" context="stock">_Help</property>
@@ -517,6 +463,99 @@
             <property name="vexpand">True</property>
             <property name="orientation">vertical</property>
             <child>
+              <object class="GtkLabel" id="daBrand_label">
+                <property name="can-focus">False</property>
+                <property name="no-show-all">True</property>
+                <property name="label" translatable="yes" context="startcenter|daBrand_label">OfficeStudio AI Banner</property>
+                <property name="mnemonic-widget">daBrand</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">False</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkDrawingArea" id="daBrand">
+                <property name="height-request">88</property>
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="hexpand">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox" id="home_section">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="hexpand">True</property>
+                <property name="orientation">vertical</property>
+                <child>
+                  <object class="GtkLabel" id="daCreateSection_label">
+                    <property name="can-focus">False</property>
+                    <property name="no-show-all">True</property>
+                    <property name="label" translatable="yes" context="startcenter|daCreateSection_label">Create New</property>
+                    <property name="mnemonic-widget">daCreateSection</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">False</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkDrawingArea" id="daCreateSection">
+                    <property name="height-request">192</property>
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="hexpand">True</property>
+                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="daRecentHeader_label">
+                    <property name="can-focus">False</property>
+                    <property name="no-show-all">True</property>
+                    <property name="label" translatable="yes" context="startcenter|daRecentHeader_label">Recent Files Header</property>
+                    <property name="mnemonic-widget">daRecentHeader</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">False</property>
+                    <property name="position">2</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkDrawingArea" id="daRecentHeader">
+                    <property name="height-request">38</property>
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="hexpand">True</property>
+                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">3</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkLabel" id="all_recent_label">
                 <property name="can-focus">False</property>
                 <property name="label" translatable="yes" context="startcenter|all_recent_label">Recent Files List</property>
@@ -526,7 +565,7 @@
               <packing>
                 <property name="expand">False</property>
                 <property name="fill">True</property>
-                <property name="position">0</property>
+                <property name="position">2</property>
               </packing>
             </child>
             <child>
@@ -539,19 +578,19 @@
               <packing>
                 <property name="expand">False</property>
                 <property name="fill">True</property>
-                <property name="position">1</property>
+                <property name="position">3</property>
               </packing>
             </child>
             <child>
               <!-- n-columns=3 n-rows=1 -->
               <object class="GtkGrid" id="actions">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
                 <property name="can-focus">False</property>
-                <property name="margin-start">6</property>
-                <property name="margin-end">6</property>
-                <property name="margin-top">6</property>
+                <property name="margin-start">24</property>
+                <property name="margin-end">24</property>
+                <property name="margin-top">12</property>
                 <property name="margin-bottom">6</property>
-                <property name="column-spacing">3</property>
+                <property name="column-spacing">6</property>
                 <child>
                   <object class="GtkLabel" id="lbFilter">
                     <property name="visible">True</property>
@@ -575,10 +614,10 @@
                     <property name="active">0</property>
                     <items>
                       <item id="filter_none" translatable="yes" context="startcenter|filter_none">All Documents</item>
-                      <item id="filter_writer" translatable="yes" context="startcenter|filter_writer">Text Documents</item>
+                      <item id="filter_writer" translatable="yes" context="startcenter|filter_writer">Docs</item>
                       <item id="filter_calc" translatable="yes" context="startcenter|filter_calc">Spreadsheets</item>
-                      <item id="filter_impress" translatable="yes" context="startcenter|filter_impress">Presentations</item>
-                      <item id="filter_draw" translatable="yes" context="startcenter|filter_draw">Drawings</item>
+                      <item id="filter_impress" translatable="yes" context="startcenter|filter_impress">SlideShows</item>
+                      <item id="filter_draw" translatable="yes" context="startcenter|filter_draw">FlowCharts</item>
                     </items>
                     <accessibility>
                       <relation type="labelled-by" target="lbFilter"/>
@@ -611,12 +650,39 @@
               <packing>
                 <property name="expand">False</property>
                 <property name="fill">True</property>
-                <property name="position">2</property>
+                <property name="position">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel" id="daHomeRecent_label">
+                <property name="can-focus">False</property>
+                <property name="no-show-all">True</property>
+                <property name="label" translatable="yes" context="startcenter|daHomeRecent_label">Recent Files Table</property>
+                <property name="mnemonic-widget">daHomeRecent</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">False</property>
+                <property name="position">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkDrawingArea" id="daHomeRecent">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="hexpand">True</property>
+                <property name="vexpand">True</property>
+                <property name="events">GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+              </object>
+              <packing>
+                <property name="expand">True</property>
+                <property name="fill">True</property>
+                <property name="position">6</property>
               </packing>
             </child>
             <child>
               <object class="GtkScrolledWindow" id="scrollrecent">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
                 <property name="can-focus">True</property>
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
@@ -640,14 +706,14 @@
                 </child>
               </object>
               <packing>
-                <property name="expand">False</property>
+                <property name="expand">True</property>
                 <property name="fill">True</property>
-                <property name="position">3</property>
+                <property name="position">7</property>
               </packing>
             </child>
             <child>
               <object class="GtkScrolledWindow" id="scrolllocal">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
                 <property name="can-focus">True</property>
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
@@ -671,15 +737,16 @@
                 </child>
               </object>
               <packing>
-                <property name="expand">False</property>
+                <property name="expand">True</property>
                 <property name="fill">True</property>
-                <property name="position">4</property>
+                <property name="position">8</property>
               </packing>
             </child>
             <child>
               <!-- n-columns=3 n-rows=3 -->
               <object class="GtkGrid" id="gdDonation">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
+                <property name="no-show-all">True</property>
                 <property name="can-focus">False</property>
                 <property name="margin-start">24</property>
                 <property name="margin-end">24</property>
@@ -766,21 +833,48 @@
               <packing>
                 <property name="expand">False</property>
                 <property name="fill">True</property>
-                <property name="position">5</property>
+                <property name="position">9</property>
               </packing>
             </child>
           </object>
           <packing>
             <property name="expand">True</property>
             <property name="fill">True</property>
-            <property name="position">2</property>
+            <property name="position">1</property>
           </packing>
         </child>
       </object>
       <packing>
-        <property name="expand">False</property>
+        <property name="expand">True</property>
         <property name="fill">True</property>
         <property name="position">0</property>
+      </packing>
+    </child>
+    <child>
+      <object class="GtkLabel" id="daFooter_label">
+        <property name="can-focus">False</property>
+        <property name="no-show-all">True</property>
+        <property name="label" translatable="yes" context="startcenter|daFooter_label">Suite Version</property>
+        <property name="mnemonic-widget">daFooter</property>
+      </object>
+      <packing>
+        <property name="expand">False</property>
+        <property name="fill">False</property>
+        <property name="position">1</property>
+      </packing>
+    </child>
+    <child>
+      <object class="GtkDrawingArea" id="daFooter">
+        <property name="height-request">36</property>
+        <property name="visible">True</property>
+        <property name="can-focus">True</property>
+        <property name="hexpand">True</property>
+        <property name="events">GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+      </object>
+      <packing>
+        <property name="expand">False</property>
+        <property name="fill">True</property>
+        <property name="position">2</property>
       </packing>
     </child>
   </object>

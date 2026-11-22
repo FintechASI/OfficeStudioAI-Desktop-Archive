@@ -25,6 +25,6 @@ $(eval $(call gb_Executable_add_exception_objects,simpress,\
 
 $(eval $(call gb_Executable_add_nativeres,simpress,simpress/launcher))
 
-$(eval $(call gb_Executable_add_default_nativeres,simpress,$(PRODUCTNAME) Impress))
+$(eval $(call gb_Executable_add_default_nativeres,simpress,$(PRODUCTNAME) SlideShows))
 
 # vim: set ts=4 sw=4 et:

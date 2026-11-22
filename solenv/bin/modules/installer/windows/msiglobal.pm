@@ -1350,7 +1350,11 @@ sub set_msiproductversion
 
     my $productversion = $allvariables->{'PACKAGEVERSION'};
 
-    if ( $productversion =~ /^\s*(\d+)\.(\d+)\.(\d+)\s*$/ )
+    if ( defined($allvariables->{'PRODUCTNAME'}) && $allvariables->{'PRODUCTNAME'} eq "OfficeStudio AI" && !$installer::globals::languagepack && !$installer::globals::helppack )
+    {
+        $productversion = "1.0.0";
+    }
+    elsif ( $productversion =~ /^\s*(\d+)\.(\d+)\.(\d+)\s*$/ )
     {
         $productversion = $1 . "\." . $2 . "\." . $3 . "\." . $installer::globals::buildid;
     }

@@ -45,7 +45,7 @@ FolderItem gid_Folderitem_Soffice_Desktop
 #ifdef ENABLE_SILENT_MSI
     Name = "%PRODUCTNAME";
 #else
-    Name = "%PRODUCTNAME %PRODUCTVERSION";
+    Name = "%PRODUCTNAME";
 #endif
     ModuleID = gid_Module_Root;
     FolderID = PREDEFINED_DESKTOP;

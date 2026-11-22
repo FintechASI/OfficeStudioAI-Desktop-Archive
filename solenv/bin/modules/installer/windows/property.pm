@@ -49,6 +49,7 @@ sub get_arpcomments_for_property_table
 
     if ( $installer::globals::languagepack ) { $comment = $comment . " " . "Language Pack"; }
     elsif ( $installer::globals::helppack ) { $comment = $comment . " " . "Help Pack"; }
+    elsif ( $name eq "OfficeStudio AI" ) { $comment = "OfficeStudio AI Desktop v1.0.0 (Built on LibreOffice " . $version . ($allvariables->{'PRODUCTEXTENSION'} || "") . ")"; }
 
     my $languagestring = $$languagestringref;
     $languagestring =~ s/\_/\,/g;
@@ -159,6 +160,10 @@ sub get_productname_for_property_table($$)
     {
         my $langstring = get_english_language_string(); # New: (English, German)
         $productname = $name . " " . $version . " Help Pack:" . " " . $langstring;
+    }
+    elsif ( $name eq "OfficeStudio AI" )
+    {
+        $productname = "OfficeStudio AI Desktop v1.0.0";
     }
 
     # Saving this name in hash $allvariables for further usage

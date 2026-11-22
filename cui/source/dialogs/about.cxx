@@ -156,8 +156,9 @@ OUString AboutDialog::GetVersionString()
     auto const ok = rtl::Bootstrap::get(u"_ARCH"_ustr, arch);
     assert(ok);
     (void)ok;
-    return CuiResId(TranslateId(nullptr, "%ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"))
-           + " (" + arch + ")";
+    return u"1.0.0 ("_ustr
+           + CuiResId(TranslateId(nullptr, "LibreOffice %ABOUTBOXPRODUCTVERSION%ABOUTBOXPRODUCTVERSIONSUFFIX"))
+           + ", " + arch + ")";
 }
 
 OUString AboutDialog::GetBuildString()

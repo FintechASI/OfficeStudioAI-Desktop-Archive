@@ -20,7 +20,7 @@
 
 #ifndef ENABLE_SILENT_MSI
 FolderItem gid_Folderitem_Scalc
-    Name = "%PRODUCTNAME Calc";
+    Name = "%PRODUCTNAME Spreadsheet";
     ModuleID = gid_Module_Prg_Calc_Bin;
     FolderID = gid_Folder_Staroffice51;
     FileID = auto_calc_brand_exe_scalc;

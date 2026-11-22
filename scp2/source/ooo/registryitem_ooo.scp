@@ -181,9 +181,9 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Name = "DisplayName";
 #if defined WINDOWS_X64
-    Value = "%PRODUCTNAME %PRODUCTVERSION 64-bit";
+    Value = "OfficeStudio AI Desktop v1.0.0";
 #else
-    Value = "%PRODUCTNAME %PRODUCTVERSION 32-bit";
+    Value = "OfficeStudio AI Desktop v1.0.0 (32-bit)";
 #endif
 End
 
@@ -200,7 +200,7 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
     Name = "DisplayVersion";
-    Value = "%PRODUCTVERSION";
+    Value = "1.0.0";
 End
 
 RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Helplink
@@ -208,7 +208,7 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
     Name = "HelpLink";
-    Value = "http://www.libreoffice.org";
+    Value = "https://github.com/FintechASI/OfficeStudioAI-Desktop";
 End
 
 RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Modifypath
@@ -224,7 +224,7 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
     Name = "Publisher";
-    Value = "The Document Foundation for the LibreOffice Community";
+    Value = "FintechASI";
 End
 
 RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Uninstallstring
@@ -240,7 +240,7 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
     Name = "URLInfoAbout";
-    Value = "http://www.libreoffice.org/";
+    Value = "https://github.com/FintechASI/OfficeStudioAI-Desktop";
 End
 
 RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Staroffice_Urlupdateinfo
@@ -248,7 +248,7 @@ RegistryItem gid_Regitem_Software_Microsoft_Windows_Currentversion_Uninstall_Sta
     ModuleID = gid_Module_Root;
     Subkey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\%PRODUCTNAME %PRODUCTVERSION";
     Name = "URLUpdateInfo";
-    Value = "http://download.libreoffice.org";
+    Value = "https://github.com/FintechASI/OfficeStudioAI-Desktop";
 End
 
 RegistryItem gid_Regitem_Software_Openoffice_Productname_Productversion_Path

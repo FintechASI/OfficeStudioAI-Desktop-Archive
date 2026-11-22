@@ -17,22 +17,22 @@
  */
 
 [STR_NAME_MODULE_PRG_WRT]
-en-US = "%PRODUCTNAME Writer"
+en-US = "%PRODUCTNAME Docs"
 
 [STR_DESC_MODULE_PRG_WRT]
-en-US = "Create and edit text and images in letters, reports, documents and Web pages by using %PRODUCTNAME Writer."
+en-US = "Create and edit text and images in letters, reports, documents and Web pages by using %PRODUCTNAME Docs."
 
 [STR_NAME_MODULE_PRG_WRT_BIN]
 en-US = "Program Module"
 
 [STR_DESC_MODULE_PRG_WRT_BIN]
-en-US = "The application %PRODUCTNAME Writer"
+en-US = "The application %PRODUCTNAME Docs"
 
 [STR_NAME_MODULE_PRG_WRT_HELP]
-en-US = "%PRODUCTNAME Writer Help"
+en-US = "%PRODUCTNAME Docs Help"
 
 [STR_DESC_MODULE_PRG_WRT_HELP]
-en-US = "Help about %PRODUCTNAME Writer"
+en-US = "Help about %PRODUCTNAME Docs"
 
 [STR_NAME_MODULE_PRG_WRT_WRITER2LATEX]
 en-US = "LaTeX Export"
