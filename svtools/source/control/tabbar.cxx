@@ -31,6 +31,8 @@
 #include <vcl/decoview.hxx>
 #include <vcl/event.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/commandevent.hxx>
 #include <vcl/ptrstyle.hxx>
 #include <vcl/weld/Builder.hxx>
@@ -71,6 +73,7 @@ public:
     bool mbCustomColored:1;
     bool mbEnabled:1;
     bool mbProtect:1;
+    bool mbFluentSheets:1;
 
     explicit TabDrawer(vcl::RenderContext& rRenderContext)
         : mrRenderContext(rRenderContext)
@@ -79,12 +82,34 @@ public:
         , mbCustomColored(false)
         , mbEnabled(false)
         , mbProtect(false)
+        , mbFluentSheets(false)
     {
 
     }
 
     void drawOuterFrame()
     {
+        if (mbFluentSheets)
+        {
+            if (mbSelected)
+            {
+                mrRenderContext.SetFillColor(maSelectedColor);
+                mrRenderContext.SetLineColor();
+                mrRenderContext.DrawRect(maRect);
+                mrRenderContext.SetLineColor(vcl::officestudio::CalcHeaderBorder);
+                mrRenderContext.DrawLine(maRect.TopLeft(), maRect.BottomLeft());
+                mrRenderContext.DrawLine(maRect.TopRight(), maRect.BottomRight());
+            }
+            else if (mbCustomColored)
+            {
+                mrRenderContext.SetFillColor(maCustomColor);
+                mrRenderContext.SetLineColor(maCustomColor);
+                mrRenderContext.DrawRect(maRect);
+                mrRenderContext.SetLineColor(vcl::officestudio::CalcHeaderBorder);
+            }
+            return;
+        }
+
         // set correct FillInBrush depending on status
         if (mbSelected)
         {
@@ -132,6 +157,19 @@ public:
         if (!mbSelected)
             return;
 
+        if (mbFluentSheets)
+        {
+            Color aLineColor = (mbCustomColored && maCustomColor != maSelectedColor)
+                                   ? maCustomColor
+                                   : vcl::officestudio::CalcAccent;
+            tools::Rectangle aAccentRect(maRect.Left() + 2, std::max(maRect.Top(), maRect.Bottom() - 2),
+                                          maRect.Right() - 2, maRect.Bottom());
+            mrRenderContext.SetFillColor(aLineColor);
+            mrRenderContext.SetLineColor();
+            mrRenderContext.DrawRect(aAccentRect);
+            return;
+        }
+
         // tdf#141396: the color must be different from the rest of the selected tab
         Color aLineColor = (mbCustomColored && maCustomColor != maSelectedColor)
                                ? maCustomColor
@@ -145,7 +183,7 @@ public:
     {
         const tools::Long cMargin = 5;
         const tools::Long aRight( maRect.Right() - 1 );
-        mrRenderContext.SetLineColor(mrStyleSettings.GetShadowColor());
+        mrRenderContext.SetLineColor(mbFluentSheets ? vcl::officestudio::Divider : mrStyleSettings.GetShadowColor());
         mrRenderContext.DrawLine(Point(aRight, maRect.Top() + cMargin),
                                  Point(aRight, maRect.Bottom() - cMargin));
     }
@@ -196,6 +234,11 @@ public:
     void setCustomColor(const Color& rColor)
     {
         maCustomColor = rColor;
+    }
+
+    void setFluentSheets(bool bFluentSheets)
+    {
+        mbFluentSheets = bFluentSheets;
     }
 };
 
@@ -313,6 +356,24 @@ void ImplTabSizer::Tracking( const TrackingEvent& rTEvt )
 
 void ImplTabSizer::Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& )
 {
+    TabBar* pParent = GetParent();
+    const StyleSettings& rStyle = rRenderContext.GetSettings().GetStyleSettings();
+    if (pParent && pParent->mbSheets && vcl::officestudio::IsLightTheme(rStyle) && !ThemeColors::IsThemeEnabled())
+    {
+        const tools::Rectangle aOut(Point(0, 0), GetOutputSizePixel());
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::CalcTabStripBg);
+        rRenderContext.DrawRect(aOut);
+        rRenderContext.SetLineColor(vcl::officestudio::CalcHeaderBorder);
+        rRenderContext.DrawLine(aOut.TopLeft(), aOut.TopRight());
+        const tools::Long cx = aOut.GetWidth() / 2;
+        const tools::Long cy = aOut.GetHeight() / 2;
+        rRenderContext.SetFillColor(vcl::officestudio::Slate400);
+        for (int i = -1; i <= 1; ++i)
+            rRenderContext.DrawRect(tools::Rectangle(cx - 1, cy + i * 4 - 1, cx + 1, cy + i * 4 + 1));
+        return;
+    }
+
     DecorationView aDecoView(&rRenderContext);
     tools::Rectangle aOutputRect(Point(0, 0), GetOutputSizePixel());
     aDecoView.DrawHandle(aOutputRect);
@@ -462,7 +523,10 @@ public:
     {
         const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
         SetPaintTransparent(false);
-        SetBackground(rStyleSettings.GetFaceColor());
+        const bool bFluentSheets = bSheets
+                                   && vcl::officestudio::IsLightTheme(rStyleSettings)
+                                   && !ThemeColors::IsThemeEnabled();
+        SetBackground(bFluentSheets ? vcl::officestudio::CalcTabStripBg : rStyleSettings.GetFaceColor());
 
         m_xFirstButton->set_accessible_name(SvtResId(STR_TABBAR_PUSHBUTTON_MOVET0HOME));
         m_xPrevButton->set_accessible_name(SvtResId(STR_TABBAR_PUSHBUTTON_MOVELEFT));
@@ -610,10 +674,15 @@ void TabBar::ImplInitSettings( bool bFont, bool bBackground )
     // FIXME RenderContext
 
     const StyleSettings& rStyleSettings = GetSettings().GetStyleSettings();
+    const bool bFluentSheets = mbSheets
+                               && vcl::officestudio::IsLightTheme(rStyleSettings)
+                               && !ThemeColors::IsThemeEnabled();
 
     if (bFont)
     {
         vcl::Font aToolFont = rStyleSettings.GetToolFont();
+        if (bFluentSheets)
+            aToolFont.SetFamilyName(u"Segoe UI"_ustr);
         aToolFont.SetWeight( WEIGHT_BOLD );
         ApplyControlFont(*GetOutDev(), aToolFont);
 
@@ -630,7 +699,8 @@ void TabBar::ImplInitSettings( bool bFont, bool bBackground )
 
     if (bBackground)
     {
-        ApplyControlBackground(*GetOutDev(), rStyleSettings.GetFaceColor());
+        ApplyControlBackground(*GetOutDev(),
+            bFluentSheets ? vcl::officestudio::CalcTabStripBg : rStyleSettings.GetFaceColor());
     }
 }
 
@@ -638,6 +708,18 @@ void TabBar::ImplGetColors(const StyleSettings& rStyleSettings,
                            Color& rFaceColor, Color& rFaceTextColor,
                            Color& rSelectColor, Color& rSelectTextColor)
 {
+    const bool bFluentSheets = mbSheets
+                               && vcl::officestudio::IsLightTheme(rStyleSettings)
+                               && !ThemeColors::IsThemeEnabled();
+    if (bFluentSheets)
+    {
+        rFaceColor = vcl::officestudio::CalcTabStripBg;
+        rFaceTextColor = vcl::officestudio::Slate600;
+        rSelectColor = COL_WHITE;
+        rSelectTextColor = vcl::officestudio::CalcAccentDark;
+        return;
+    }
+
     if (IsControlBackground())
         rFaceColor = GetControlBackground();
     else
@@ -691,7 +773,10 @@ bool TabBar::ImplCalcWidth()
         tools::Long nFontWidth = aFont.GetFontHeight();
         if (rItem.mbProtect)
             nNewWidth += 24;
-        nNewWidth += nFontWidth * 2;
+        const bool bFluentSheets = mbSheets
+                                   && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+                                   && !ThemeColors::IsThemeEnabled();
+        nNewWidth += bFluentSheets ? std::max<tools::Long>(nFontWidth * 2, 26) : nFontWidth * 2;
 
         if (rItem.mnWidth != nNewWidth)
         {
@@ -1147,7 +1232,21 @@ void TabBar::MouseButtonUp(const MouseEvent& rMEvt)
 
 void TabBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rect)
 {
-    if (rRenderContext.IsNativeControlSupported(ControlType::WindowBackground,ControlPart::Entire))
+    const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
+    const bool bFluentSheets = mbSheets
+                               && vcl::officestudio::IsLightTheme(rStyleSettings)
+                               && !ThemeColors::IsThemeEnabled();
+
+    if (bFluentSheets)
+    {
+        const Size aOutSz = GetOutputSizePixel();
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::CalcTabStripBg);
+        rRenderContext.DrawRect(rect);
+        rRenderContext.SetLineColor(vcl::officestudio::CalcHeaderBorder);
+        rRenderContext.DrawLine(Point(0, 0), Point(std::max<tools::Long>(0, aOutSz.Width() - 1), 0));
+    }
+    else if (rRenderContext.IsNativeControlSupported(ControlType::WindowBackground,ControlPart::Entire))
     {
         rRenderContext.DrawNativeControl(ControlType::WindowBackground,ControlPart::Entire,rect,
                                          ControlState::ENABLED,ImplControlValue(0),OUString());
@@ -1160,7 +1259,6 @@ void TabBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& r
     ImplPrePaint();
 
     Color aFaceColor, aSelectColor, aFaceTextColor, aSelectTextColor;
-    const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
     ImplGetColors(rStyleSettings, aFaceColor, aFaceTextColor, aSelectColor, aSelectTextColor);
 
     auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::CLIPREGION);
@@ -1172,6 +1270,7 @@ void TabBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& r
     aLightFont.SetWeight(WEIGHT_NORMAL);
 
     TabDrawer aDrawer(rRenderContext);
+    aDrawer.setFluentSheets(bFluentSheets);
 
     aDrawer.setSelectedFillColor(aSelectColor);
 

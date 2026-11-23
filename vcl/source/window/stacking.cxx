@@ -63,9 +63,13 @@ void Window::ImplInsertWindow( vcl::Window* pParent )
 
     if ( !pParent || mpWindowImpl->mbFrame )
         return;
+    if ( !pParent->mpWindowImpl || !pParent->mpWindowImpl->mpFrameWindow )
+        return;
 
     // search frame window and set window frame data
     vcl::Window* pFrameParent = pParent->mpWindowImpl->mpFrameWindow;
+    if ( !pFrameParent->mpWindowImpl )
+        return;
     mpWindowImpl->mpFrameData = pFrameParent->mpWindowImpl->mpFrameData;
     if (mpWindowImpl->mpFrame != pFrameParent->mpWindowImpl->mpFrame)
     {
@@ -457,9 +461,11 @@ void Window::SetZOrder( vcl::Window* pRefWindow, ZOrderFlags nFlags )
         nFlags |= ZOrderFlags::Behind;
     }
 
-    while ( pRefWindow && pRefWindow->mpWindowImpl->mpBorderWindow )
+    while ( pRefWindow && pRefWindow->mpWindowImpl->mpBorderWindow
+            && pRefWindow->mpWindowImpl->mpBorderWindow != mpWindowImpl->mpParent )
         pRefWindow = pRefWindow->mpWindowImpl->mpBorderWindow;
-    if (!pRefWindow || pRefWindow == this || mpWindowImpl->mbFrame)
+    if (!pRefWindow || pRefWindow == this || mpWindowImpl->mbFrame
+        || pRefWindow->mpWindowImpl->mpParent != mpWindowImpl->mpParent)
         return;
 
     SAL_WARN_IF( pRefWindow->mpWindowImpl->mpParent != mpWindowImpl->mpParent, "vcl", "Window::SetZOrder() - pRefWindow has other parent" );

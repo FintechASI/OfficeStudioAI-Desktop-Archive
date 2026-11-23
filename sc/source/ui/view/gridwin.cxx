@@ -48,6 +48,8 @@
 #include <vcl/inputctx.hxx>
 #include <vcl/ptrstyle.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/virdev.hxx>
 #include <vcl/weld/weldutils.hxx>
 #include <sot/formats.hxx>
@@ -6990,7 +6992,12 @@ void ScGridWindow::UpdateSelectionOverlay()
         }
         else
         {
-            const Color aHighlight(SvtOptionsDrawinglayer::getHilightColor());
+            const StyleSettings& rStyle = GetSettings().GetStyleSettings();
+            const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyle)
+                                      && !ThemeColors::IsThemeEnabled();
+            const Color aHighlight(bFluentLight
+                ? vcl::officestudio::CalcAccent
+                : SvtOptionsDrawinglayer::getHilightColor());
             std::unique_ptr<sdr::overlay::OverlayObject> pOverlay = DrawOverlay(aRects, aHighlight, true, true, sdr::overlay::OverlayType::Transparent);
             if (pOverlay) {
                 mpOOSelection.reset(new sdr::overlay::OverlayObjectList);

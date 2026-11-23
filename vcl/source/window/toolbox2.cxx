@@ -26,6 +26,9 @@
 #include <comphelper/processfactory.hxx>
 #include <boost/property_tree/ptree.hpp>
 
+#include <cmath>
+
+#include <o3tl/string_view.hxx>
 #include <vcl/cvtgrf.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/idle.hxx>
@@ -36,7 +39,14 @@
 #include <vcl/menu.hxx>
 #include <vcl/settings.hxx>
 #include <vcl/IconThemeInfo.hxx>
+#include <vcl/ImageTree.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/commandinfoprovider.hxx>
+#include <vcl/notebookbar/notebookbar.hxx>
+#include <vcl/tabctrl.hxx>
+#include <vcl/tabpage.hxx>
+#include <vcl/themecolors.hxx>
+#include <OfficeStudioIcons.hxx>
 
 #include <accessibility/vclxaccessibletoolbox.hxx>
 #include <svdata.hxx>
@@ -672,6 +682,27 @@ ImageType ToolBox::GetImageSize() const
 
 Size ToolBox::GetDefaultImageSize() const
 {
+    if (vcl::officestudio::IsEnhancedRibbonToolBox(*this))
+    {
+        tools::Long nBaseSize = 16;
+        sal_Int32 nBaseScalePct = vcl::officestudio::RibbonSmallIconScalePct;
+        const ToolBoxButtonSize eBtnSize = GetToolboxButtonSize();
+        if (eBtnSize == ToolBoxButtonSize::Large)
+        {
+            nBaseSize = 24;
+            nBaseScalePct = vcl::officestudio::RibbonLargeIconScalePct;
+        }
+        else if (eBtnSize == ToolBoxButtonSize::Size32)
+        {
+            nBaseSize = 32;
+            nBaseScalePct = 100;
+        }
+        const sal_Int32 nDisplayPct = vcl::officestudio::GetRibbonDisplayScalePct(*this);
+        const sal_Int32 nEffPct = vcl::officestudio::ComputeRibbonIconScalePct(nBaseScalePct, nDisplayPct);
+        const tools::Long nSz = std::max<tools::Long>(16, std::lround(nBaseSize * nEffPct / 100.0));
+        return Size(nSz, nSz);
+    }
+
     return GetDefaultImageSize(GetToolboxButtonSize());
 }
 
@@ -980,7 +1011,8 @@ void ToolBox::SetItemImage( ToolBoxItemId nItemId, const Image& rImage )
     ImplToolItem* pItem = &mpData->m_aItems[nPos];
     Size aOldSize = pItem->maImage.GetSizePixel();
 
-    pItem->maImage = pItem->mbMirrorMode ? ImplMirrorImage(rImage) : rImage;
+    const Image aResolved = vcl::officestudio::ResolveRibbonToolBoxImage(*this, rImage);
+    pItem->maImage = pItem->mbMirrorMode ? ImplMirrorImage(aResolved) : aResolved;
     if (pItem->mnImageAngle != 0_deg10)
         pItem->maImage = ImplRotImage(pItem->maImage, pItem->mnImageAngle);
 
@@ -1685,5 +1717,154 @@ void ToolBox::WillUsePopupMode( bool b )
 {
     mpData->mbWillUsePopupMode = b;
 }
+
+namespace vcl::officestudio
+{
+
+namespace
+{
+bool IsEnhancedHeaderShortcutsToolBox(const vcl::Window& rWin)
+{
+    const StyleSettings& rStyle = rWin.GetSettings().GetStyleSettings();
+    if (!IsLightTheme(rStyle) || ThemeColors::IsThemeEnabled())
+        return false;
+
+    if (dynamic_cast<const NotebookbarTabControlBase*>(rWin.GetParent()) == nullptr)
+        return false;
+
+    for (const vcl::Window* pAnc = rWin.GetParent(); pAnc != nullptr; pAnc = pAnc->GetParent())
+    {
+        if (const auto* pNb = dynamic_cast<const NotebookBar*>(pAnc))
+            return IsEnhancedRibbonModule(pNb->GetModule());
+    }
+    return false;
+}
+} // namespace
+
+bool IsEnhancedRibbonWindow(const vcl::Window& rWindow)
+{
+    const StyleSettings& rStyle = rWindow.GetSettings().GetStyleSettings();
+    if (!IsLightTheme(rStyle) || ThemeColors::IsThemeEnabled())
+        return false;
+
+    bool bInsideTabPage = false;
+    for (const vcl::Window* pAnc = rWindow.GetParent(); pAnc != nullptr; pAnc = pAnc->GetParent())
+    {
+        if (dynamic_cast<const TabPage*>(pAnc) != nullptr)
+            bInsideTabPage = true;
+        if (const auto* pNb = dynamic_cast<const NotebookBar*>(pAnc))
+            return bInsideTabPage && IsEnhancedRibbonModule(pNb->GetModule());
+    }
+    return false;
+}
+
+bool IsCalcRibbonWindow(const vcl::Window& rWindow)
+{
+    const StyleSettings& rStyle = rWindow.GetSettings().GetStyleSettings();
+    if (!IsLightTheme(rStyle) || ThemeColors::IsThemeEnabled())
+        return false;
+
+    bool bInsideTabPage = false;
+    for (const vcl::Window* pAnc = rWindow.GetParent(); pAnc != nullptr; pAnc = pAnc->GetParent())
+    {
+        if (dynamic_cast<const TabPage*>(pAnc) != nullptr)
+            bInsideTabPage = true;
+        if (const auto* pNb = dynamic_cast<const NotebookBar*>(pAnc))
+            return bInsideTabPage && IsCalcModule(pNb->GetModule());
+    }
+    return false;
+}
+
+sal_Int32 GetWindowEffectiveDisplayScalePct(const vcl::Window& rWindow)
+{
+    const OutputDevice* pOutDev = rWindow.GetOutDev();
+    sal_Int32 nDPIScalePct = pOutDev ? pOutDev->GetDPIScalePercentage() : 100;
+    sal_Int32 nDPIY = pOutDev ? pOutDev->GetDPIY() : 0;
+    if (nDPIY <= 0)
+    {
+        if (const OutputDevice* pDefault = Application::GetDefaultDevice())
+        {
+            nDPIScalePct = std::max(nDPIScalePct, pDefault->GetDPIScalePercentage());
+            nDPIY = pDefault->GetDPIY();
+        }
+    }
+    return ComputeEffectiveDisplayScalePct(nDPIScalePct, nDPIY);
+}
+
+bool IsEnhancedRibbonToolBox(const ToolBox& rToolBox)
+{
+    return IsEnhancedRibbonWindow(rToolBox);
+}
+
+sal_Int32 GetRibbonDisplayScalePct(const ToolBox& rToolBox)
+{
+    return GetWindowEffectiveDisplayScalePct(rToolBox);
+}
+
+Image ResolveRibbonToolBoxImage(const ToolBox& rToolBox, const Image& rImage)
+{
+    const bool bRibbon = IsEnhancedRibbonToolBox(rToolBox);
+    const bool bHeaderQAT = !bRibbon && IsEnhancedHeaderShortcutsToolBox(rToolBox);
+    if (!bRibbon && !bHeaderQAT)
+        return rImage;
+
+    const OUString& rStock = rImage.GetStock();
+    if (rStock.isEmpty())
+        return rImage;
+
+    sal_Int32 nBaseScalePct = bRibbon ? RibbonSmallIconScalePct : 100;
+    const OUString sLower = rStock.toAsciiLowerCase();
+    if (sLower.startsWith(u"cmd/32/") || sLower.startsWith(u"cmd/rltb/32/"))
+        nBaseScalePct = 100;
+    else if (sLower.startsWith(u"cmd/lc_") || sLower.startsWith(u"cmd/rltb/lc_"))
+        nBaseScalePct = bRibbon ? RibbonLargeIconScalePct : 100;
+    else if (sLower.startsWith(u"cmd/sc_") || sLower.startsWith(u"cmd/rltb/sc_"))
+        nBaseScalePct = bRibbon ? RibbonSmallIconScalePct : 100;
+    else if (bRibbon)
+    {
+        const vcl::ImageType eType = rToolBox.GetImageSize();
+        if (eType == vcl::ImageType::Size26)
+            nBaseScalePct = RibbonLargeIconScalePct;
+        else if (eType == vcl::ImageType::Size32)
+            nBaseScalePct = 100;
+    }
+
+    const sal_Int32 nDisplayPct = GetRibbonDisplayScalePct(rToolBox);
+    const sal_Int32 nEffPct = ComputeRibbonIconScalePct(nBaseScalePct, nDisplayPct);
+
+    static std::map<std::pair<OUString, sal_Int32>, Bitmap> aO21Cache;
+    const std::pair<OUString, sal_Int32> aKey(sLower, nEffPct);
+    auto it = aO21Cache.find(aKey);
+    if (it != aO21Cache.end())
+        return Image(it->second);
+
+    Bitmap aBitmap;
+    if (TryRenderOffice2021CommandIcon(rStock, nEffPct, aBitmap) && !aBitmap.IsEmpty())
+    {
+        aO21Cache.emplace(aKey, aBitmap);
+        return Image(aBitmap);
+    }
+
+    const OUString aIconTheme = Application::GetSettings().GetStyleSettings().DetermineIconTheme();
+    bool bLoaded = ImageTree::get().loadImage(rStock, aIconTheme, aBitmap, true,
+                                              nEffPct, ImageLoadFlags::IgnoreScalingFactor);
+    if (!bLoaded && rStock.indexOf("%3f") > 0)
+    {
+        const sal_Int32 nStart = rStock.indexOf("%3f");
+        const sal_Int32 nEnd = rStock.lastIndexOf('.');
+        if (nEnd > nStart)
+        {
+            const OUString aFileName = rStock.replaceAt(nStart, nEnd - nStart, u"");
+            bLoaded = ImageTree::get().loadImage(aFileName, aIconTheme, aBitmap, true,
+                                                 nEffPct, ImageLoadFlags::IgnoreScalingFactor);
+        }
+    }
+
+    if (bLoaded && !aBitmap.IsEmpty())
+        return Image(aBitmap);
+    return rImage;
+}
+
+} // namespace vcl::officestudio
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

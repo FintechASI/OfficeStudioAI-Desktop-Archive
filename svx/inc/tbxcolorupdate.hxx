@@ -22,6 +22,7 @@
 #include <sfx2/namedcolor.hxx>
 #include <tools/gen.hxx>
 #include <tools/color.hxx>
+#include <vcl/image.hxx>
 #include <vcl/vclenum.hxx>
 #include <vcl/vclptr.hxx>
 #include <vcl/toolbox.hxx>
@@ -73,6 +74,7 @@ protected:
     sal_uInt16 mnSlotId;
     Color maCurColor;
     vcl::ImageType meImageType;
+    sal_Int32 mnLastDisplayScalePct = 0;
     OUString maCommandLabel;
     OUString maCommandURL;
     css::uno::Reference<css::frame::XFrame> mxFrame;
@@ -87,6 +89,8 @@ protected:
     virtual bool RecordVirtualDevice() const = 0;
     virtual vcl::ImageType GetImageSize() const = 0;
     virtual Size GetItemSize(const Size& rImageSize) const = 0;
+    virtual Image ResolveBaseImage(const Image& rImage) const { return rImage; }
+    virtual sal_Int32 GetDisplayScalePct() const { return 100; }
 };
 
 class VclToolboxButtonColorUpdater final : public ToolboxButtonColorUpdaterBase
@@ -108,6 +112,8 @@ private:
     virtual bool RecordVirtualDevice() const override { return true; }
     virtual vcl::ImageType GetImageSize() const override;
     virtual Size GetItemSize(const Size& rImageSize) const override;
+    virtual Image ResolveBaseImage(const Image& rImage) const override;
+    virtual sal_Int32 GetDisplayScalePct() const override;
 };
 
 class ToolboxButtonColorUpdater final : public ToolboxButtonColorUpdaterBase

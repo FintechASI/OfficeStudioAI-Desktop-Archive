@@ -118,8 +118,7 @@ bool WinSalSystem::initMonitors()
                                                        AbsoluteScreenPixelRectangle() ) );
             }
         }
-        HDC aDesktopRC = GetDC( nullptr );
-        EnumDisplayMonitors( aDesktopRC, nullptr, ImplEnumMonitorProc, reinterpret_cast<LPARAM>(this) );
+        EnumDisplayMonitors( nullptr, nullptr, ImplEnumMonitorProc, reinterpret_cast<LPARAM>(this) );
 
         // append monitor numbers to name strings
         std::unordered_map< OUString, int > aDevCount( aDeviceStringCount );
@@ -133,7 +132,6 @@ bool WinSalSystem::initMonitors()
                 m_aMonitors[ i ].m_aName = rDev + " (" + OUString::number( nInstance ) + ")";
             }
         }
-        ReleaseDC(nullptr, aDesktopRC);
     }
 
     return m_aMonitors.size() > 0;

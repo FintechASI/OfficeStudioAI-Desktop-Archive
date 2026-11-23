@@ -62,6 +62,7 @@ public:
             case ControlType::Spinbox:
             case ControlType::SpinButtons:
             case ControlType::TabItem:
+            case ControlType::Toolbar:
                 return false;
 
             case ControlType::Menubar:

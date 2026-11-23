@@ -28,6 +28,7 @@
 #include <vcl/help.hxx>
 #include <vcl/vcllayout.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/status.hxx>
 #include <vcl/virdev.hxx>
 #include <vcl/settings.hxx>
@@ -181,9 +182,14 @@ void StatusBar::ApplySettings(vcl::RenderContext& rRenderContext)
     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
     ApplyControlFont(rRenderContext, rStyleSettings.GetToolFont());
 
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::VclPluginCanUseThemeColors();
+
     Color aColor;
     if (IsControlForeground())
         aColor = GetControlForeground();
+    else if (bFluentLight)
+        aColor = vcl::officestudio::Slate700;
     else if (GetStyle() & WB_3DLOOK)
         aColor = rStyleSettings.GetButtonTextColor();
     else
@@ -194,6 +200,8 @@ void StatusBar::ApplySettings(vcl::RenderContext& rRenderContext)
 
     if (IsControlBackground())
         aColor = GetControlBackground();
+    else if (bFluentLight)
+        aColor = vcl::officestudio::SurfaceSubtle;
     else if (GetStyle() & WB_3DLOOK)
         aColor = rStyleSettings.GetFaceColor();
     else
@@ -749,7 +757,10 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
     // draw line at the top of the status bar (to visually distinguish it from
     // shell / docking area)
     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
-    rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
+    if (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::VclPluginCanUseThemeColors())
+        rRenderContext.SetLineColor(vcl::officestudio::Divider);
+    else
+        rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
     rRenderContext.DrawLine(Point(0, 0), Point(mnDX-1, 0));
 }
 
@@ -1464,6 +1475,14 @@ Size StatusBar::CalcWindowSizePixel() const
     nCalcHeight = nMinHeight+nBarTextOffset;
     if( nCalcHeight < nProgressHeight+2 )
         nCalcHeight = nProgressHeight+2;
+
+    const StyleSettings& rStyleSettings = GetSettings().GetStyleSettings();
+    if (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::VclPluginCanUseThemeColors())
+    {
+        tools::Long nFluentMinH = static_cast<tools::Long>(std::lround(26 * GetDPIScaleFactor()));
+        if (nCalcHeight < nFluentMinH)
+            nCalcHeight = nFluentMinH;
+    }
 
     return Size( nCalcWidth, nCalcHeight );
 }

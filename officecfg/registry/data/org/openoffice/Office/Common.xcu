@@ -135,7 +135,7 @@
           <value>private:factory/sdraw</value>
         </prop>
         <prop oor:name="Title">
-          <value xml:lang="en-US">~FlowCharts</value>
+          <value xml:lang="en-US">~Design</value>
         </prop>
         <prop oor:name="TargetName" oor:type="xs:string">
           <value>_default</value>
@@ -146,7 +146,7 @@
           <value>private:factory/smath</value>
         </prop>
         <prop oor:name="Title">
-          <value xml:lang="en-US">F~ormula</value>
+          <value xml:lang="en-US">~Math</value>
         </prop>
         <prop oor:name="TargetName" oor:type="xs:string">
           <value>_default</value>

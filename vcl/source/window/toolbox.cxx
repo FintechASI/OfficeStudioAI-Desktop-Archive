@@ -30,6 +30,13 @@
 #include <vcl/menu.hxx>
 #include <vcl/settings.hxx>
 #include <vcl/ptrstyle.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <vcl/notebookbar/notebookbar.hxx>
+#include <vcl/tabpage.hxx>
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <basegfx/range/b2drectangle.hxx>
 #include <bitmaps.hlst>
 #include <toolbarvalue.hxx>
 
@@ -50,6 +57,8 @@
 #include <win/svsys.h>
 #endif
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <string_view>
@@ -1356,13 +1365,18 @@ bool ToolBox::ImplCalcItem()
     OutputDevice *pDefault = Application::GetDefaultDevice();
     float fScaleFactor = pDefault ? pDefault->GetDPIScaleFactor() : 1.0;
 
+    const bool bEnhancedRibbon = vcl::officestudio::IsEnhancedRibbonToolBox(*this);
+    const sal_Int32 nDisplayPct = bEnhancedRibbon ? vcl::officestudio::GetRibbonDisplayScalePct(*this) : 100;
+
     tools::Long            nDefWidth;
     tools::Long            nDefHeight;
     tools::Long            nMaxWidth = 0;
     tools::Long            nMaxHeight = 0;
     tools::Long            nMinWidth   = 6;
     tools::Long            nMinHeight  = 6;
-    tools::Long            nDropDownArrowWidth = TB_DROPDOWNARROWWIDTH * fScaleFactor;
+    tools::Long            nDropDownArrowWidth = bEnhancedRibbon
+        ? vcl::officestudio::ComputeScaledMetric(10.0, nDisplayPct)
+        : static_cast<tools::Long>(TB_DROPDOWNARROWWIDTH * fScaleFactor);
 #ifdef IOS
     nDropDownArrowWidth *= 3;
 #endif
@@ -1378,7 +1392,7 @@ bool ToolBox::ImplCalcItem()
         tools::Rectangle aReg( aRect );
         ImplControlValue aVal;
         tools::Rectangle aNativeBounds, aNativeContent;
-        if( IsNativeControlSupported( ControlType::Toolbar, ControlPart::Button ) )
+        if( !bEnhancedRibbon && IsNativeControlSupported( ControlType::Toolbar, ControlPart::Button ) )
         {
             if( GetNativeControlRegion( ControlType::Toolbar, ControlPart::Button,
                                         aReg,
@@ -1495,22 +1509,69 @@ bool ToolBox::ImplCalcItem()
                         item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
 
+                        const tools::Long nImageTextGap = bEnhancedRibbon
+                            ? vcl::officestudio::ComputeScaledMetric(
+                                  meTextPosition == ToolBoxTextPosition::Right ? 5.0 : 3.0, nDisplayPct)
+                            : TB_IMAGETEXTOFFSET;
+
                         if ( meTextPosition == ToolBoxTextPosition::Right )
                         {
                             // leave space between image and text
                             if( bText )
-                                item.maItemSize.AdjustWidth(TB_IMAGETEXTOFFSET );
+                                item.maItemSize.AdjustWidth(nImageTextGap );
 
                             // image and text side by side
                             item.maItemSize.AdjustWidth(item.maImage.GetSizePixel().Width() );
                             if ( item.maImage.GetSizePixel().Height() > item.maItemSize.Height() )
                                 item.maItemSize.setHeight( item.maImage.GetSizePixel().Height() );
                         }
+                        else if ( bEnhancedRibbon && bText )
+                        {
+                            const tools::Long nMaxHeroLineW = vcl::officestudio::ComputeScaledMetric(68.0, nDisplayPct);
+                            OUString sClean = removeMnemonicFromString( item.maText );
+                            OUString sLine1 = sClean;
+                            OUString sLine2;
+                            if ( GetOutDev()->GetTextWidth( sClean ) > nMaxHeroLineW )
+                            {
+                                sal_Int32 nBestSplit = -1;
+                                tools::Long nBestMax = std::numeric_limits<tools::Long>::max();
+                                for ( sal_Int32 nPosSp = sClean.indexOf(' '); nPosSp > 0; nPosSp = sClean.indexOf(' ', nPosSp + 1) )
+                                {
+                                    OUString sA = sClean.copy(0, nPosSp);
+                                    OUString sB = sClean.copy(nPosSp + 1);
+                                    tools::Long nM = std::max(GetOutDev()->GetTextWidth(sA), GetOutDev()->GetTextWidth(sB));
+                                    if (nM < nBestMax)
+                                    {
+                                        nBestMax = nM;
+                                        nBestSplit = nPosSp;
+                                    }
+                                }
+                                if (nBestSplit > 0)
+                                {
+                                    sLine1 = sClean.copy(0, nBestSplit);
+                                    sLine2 = sClean.copy(nBestSplit + 1);
+                                }
+                            }
+                            const tools::Long nLine1W = GetOutDev()->GetTextWidth(sLine1);
+                            const tools::Long nChevronInlineW = ((item.mnBits & ToolBoxItemBits::DROPDOWN) && !sLine2.isEmpty())
+                                ? vcl::officestudio::ComputeScaledMetric(10.0, nDisplayPct)
+                                : 0;
+                            const tools::Long nLine2W = sLine2.isEmpty() ? 0 : (GetOutDev()->GetTextWidth(sLine2) + nChevronInlineW);
+                            const tools::Long nTextBlockW = std::max(nLine1W, nLine2W) + 2;
+                            const tools::Long nLineH = GetTextHeight();
+                            const tools::Long nBottomChevronH = ((item.mnBits & ToolBoxItemBits::DROPDOWN) && sLine2.isEmpty())
+                                ? vcl::officestudio::ComputeScaledMetric(9.0, nDisplayPct)
+                                : 0;
+                            const tools::Long nTextBlockH = (sLine2.isEmpty() ? nLineH : (nLineH * 2)) + nBottomChevronH;
+
+                            item.maItemSize.setWidth(std::max(item.maImage.GetSizePixel().Width(), nTextBlockW));
+                            item.maItemSize.setHeight(item.maImage.GetSizePixel().Height() + nImageTextGap + nTextBlockH);
+                        }
                         else
                         {
                             // leave space between image and text
                             if( bText )
-                                item.maItemSize.AdjustHeight(TB_IMAGETEXTOFFSET );
+                                item.maItemSize.AdjustHeight(nImageTextGap );
 
                             // text below image
                             item.maItemSize.AdjustHeight(item.maImage.GetSizePixel().Height() );
@@ -1538,10 +1599,13 @@ bool ToolBox::ImplCalcItem()
                         mnWinHeight = nHeight;
                 }
 
-                // add in drop down arrow
+                // add in drop down arrow (vertical hero buttons place chevron below/inline with label instead of widening right column)
                 if( item.mnBits & ToolBoxItemBits::DROPDOWN )
                 {
-                    item.maItemSize.AdjustWidth(nDropDownArrowWidth );
+                    if (!(bEnhancedRibbon && meTextPosition == ToolBoxTextPosition::Bottom && item.mbVisibleText))
+                    {
+                        item.maItemSize.AdjustWidth(nDropDownArrowWidth );
+                    }
                     item.mnDropDownArrowWidth = nDropDownArrowWidth;
                 }
 
@@ -1569,7 +1633,36 @@ bool ToolBox::ImplCalcItem()
                 // add borders
                 tools::Long w = item.maItemSize.Width();
                 tools::Long h = item.maItemSize.Height();
-                ImplAddButtonBorder( w, h, mpData->mbNativeButtons );
+                if (bEnhancedRibbon && item.meType == ToolBoxItemType::BUTTON)
+                {
+                    const ButtonType eBtnType = determineButtonType( &item, meButtonType );
+                    const bool bHasDropDown = (item.mnBits & ToolBoxItemBits::DROPDOWN) != ToolBoxItemBits::NONE;
+                    const bool bBottomHero = (eBtnType == ButtonType::SYMBOLTEXT && meTextPosition == ToolBoxTextPosition::Bottom);
+                    double fPadH = 8.0;
+                    double fPadV = (GetToolboxButtonSize() == ToolBoxButtonSize::Small) ? 5.0 : 8.0;
+                    if (eBtnType == ButtonType::SYMBOLONLY)
+                        fPadH = bHasDropDown ? 6.0 : 7.0;
+                    else if (bBottomHero)
+                    {
+                        fPadH = 10.0;
+                        fPadV = 8.0;
+                    }
+                    w += vcl::officestudio::ComputeScaledMetric(fPadH, nDisplayPct);
+                    h += vcl::officestudio::ComputeScaledMetric(fPadV, nDisplayPct);
+                    if (bBottomHero)
+                    {
+                        w = std::max<tools::Long>(w, vcl::officestudio::ComputeScaledMetric(46.0, nDisplayPct));
+                        h = std::max<tools::Long>(h, vcl::officestudio::ComputeScaledMetric(70.0, nDisplayPct));
+                    }
+                    else if (GetToolboxButtonSize() == ToolBoxButtonSize::Small)
+                    {
+                        h = std::max<tools::Long>(h, vcl::officestudio::ComputeScaledMetric(24.0, nDisplayPct));
+                    }
+                }
+                else
+                {
+                    ImplAddButtonBorder( w, h, mpData->mbNativeButtons );
+                }
                 item.maItemSize.setWidth(w);
                 item.maItemSize.setHeight(h);
 
@@ -1621,14 +1714,29 @@ bool ToolBox::ImplCalcItem()
         // as this is used for alignment of multiple toolbars
         // it is only required for docked toolbars
 
-        tools::Long nFixedWidth = nDefWidth+nDropDownArrowWidth;
-        tools::Long nFixedHeight = nDefHeight;
-        ImplAddButtonBorder( nFixedWidth, nFixedHeight, mpData->mbNativeButtons );
-
-        if( mbHorz )
-            nMaxHeight = nFixedHeight;
+        if (bEnhancedRibbon)
+        {
+            const tools::Long nFixedWidth = nDefWidth + nDropDownArrowWidth
+                + vcl::officestudio::ComputeScaledMetric(7.0, nDisplayPct);
+            const double fFixedPadV = (GetToolboxButtonSize() == ToolBoxButtonSize::Small) ? 5.0 : 8.0;
+            const tools::Long nFixedHeight = nDefHeight
+                + vcl::officestudio::ComputeScaledMetric(fFixedPadV, nDisplayPct);
+            if (mbHorz)
+                nMaxHeight = std::max(nMaxHeight, nFixedHeight);
+            else
+                nMaxWidth = std::max(nMaxWidth, nFixedWidth);
+        }
         else
-            nMaxWidth = nFixedWidth;
+        {
+            tools::Long nFixedWidth = nDefWidth+nDropDownArrowWidth;
+            tools::Long nFixedHeight = nDefHeight;
+            ImplAddButtonBorder( nFixedWidth, nFixedHeight, mpData->mbNativeButtons );
+
+            if( mbHorz )
+                nMaxHeight = nFixedHeight;
+            else
+                nMaxWidth = nFixedWidth;
+        }
     }
 
     mbCalc = false;
@@ -2368,8 +2476,133 @@ static void ImplDrawMoreIndicator(vcl::RenderContext& rRenderContext, const tool
     rRenderContext.DrawImage(Point(x,y), pImage, nImageStyle);
 }
 
-static void ImplDrawDropdownArrow(vcl::RenderContext& rRenderContext, const tools::Rectangle& rDropDownRect, bool bSetColor, bool bRotate )
+namespace
 {
+
+enum class RibbonFluentStyle
+{
+    None,
+    DocsBlue,
+    CalcGreen
+};
+
+RibbonFluentStyle lcl_getFluentToolBoxStyle(const vcl::Window* pWin)
+{
+    if (!pWin)
+        return RibbonFluentStyle::None;
+    const StyleSettings& rStyle = pWin->GetSettings().GetStyleSettings();
+    if (!vcl::officestudio::IsLightTheme(rStyle) || ThemeColors::IsThemeEnabled())
+        return RibbonFluentStyle::None;
+    if (pWin->GetHelpId() == u"SC_HID_SC_INPUTWIN"_ustr)
+        return RibbonFluentStyle::CalcGreen;
+    bool bInsideTabPage = false;
+    for (const vcl::Window* pAnc = pWin->GetParent(); pAnc != nullptr; pAnc = pAnc->GetParent())
+    {
+        if (dynamic_cast<const TabPage*>(pAnc) != nullptr)
+            bInsideTabPage = true;
+        if (const auto* pNb = dynamic_cast<const NotebookBar*>(pAnc))
+        {
+            if (vcl::officestudio::IsCalcModule(pNb->GetModule()))
+                return RibbonFluentStyle::CalcGreen;
+            if (bInsideTabPage && vcl::officestudio::IsWriterModule(pNb->GetModule()))
+                return RibbonFluentStyle::DocsBlue;
+            return RibbonFluentStyle::None;
+        }
+    }
+    return RibbonFluentStyle::None;
+}
+
+void lcl_SplitHeroLabel(const OUString& rText, const OutputDevice& rDev, tools::Long nMaxW,
+                        OUString& rLine1, OUString& rLine2)
+{
+    OUString sClean = removeMnemonicFromString(rText);
+    rLine1 = sClean;
+    rLine2.clear();
+    if (rDev.GetTextWidth(sClean) <= nMaxW)
+        return;
+
+    sal_Int32 nBestSplit = -1;
+    tools::Long nBestMax = std::numeric_limits<tools::Long>::max();
+    for (sal_Int32 nPosSp = sClean.indexOf(' '); nPosSp > 0; nPosSp = sClean.indexOf(' ', nPosSp + 1))
+    {
+        OUString sA = sClean.copy(0, nPosSp);
+        OUString sB = sClean.copy(nPosSp + 1);
+        tools::Long nM = std::max(rDev.GetTextWidth(sA), rDev.GetTextWidth(sB));
+        if (nM < nBestMax)
+        {
+            nBestMax = nM;
+            nBestSplit = nPosSp;
+        }
+    }
+    if (nBestSplit > 0)
+    {
+        rLine1 = sClean.copy(0, nBestSplit);
+        rLine2 = sClean.copy(nBestSplit + 1);
+    }
+}
+
+void lcl_DrawFluentChevron(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect,
+                           bool bEnabled, double fScale)
+{
+    const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+    auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+    rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+    rRenderContext.SetFillColor();
+    rRenderContext.SetLineColor(bEnabled ? vcl::officestudio::TextSecondary : vcl::officestudio::Slate400);
+    const double cx = (rRect.Left() + rRect.Right()) * 0.5;
+    const double cy = (rRect.Top() + rRect.Bottom()) * 0.5 + 0.5 * fScale;
+    const double hw = std::clamp(rRect.GetWidth() * 0.28, 2.4 * fScale, 3.5 * fScale);
+    const double hh = std::max(1.4 * fScale, hw * 0.5);
+    basegfx::B2DPolygon aChevron;
+    aChevron.append(basegfx::B2DPoint(cx - hw, cy - hh));
+    aChevron.append(basegfx::B2DPoint(cx, cy + hh));
+    aChevron.append(basegfx::B2DPoint(cx + hw, cy - hh));
+    rRenderContext.DrawPolyLine(aChevron, 1.25 * fScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+    rRenderContext.SetAntialiasing(nOldAA);
+}
+
+tools::Rectangle lcl_GetEnhancedDropDownRect(const ImplToolItem& rItem, bool bHorz,
+                                             bool bBottomText, sal_Int32 nDisplayPct)
+{
+    if ((rItem.mnBits & ToolBoxItemBits::DROPDOWN) && !rItem.maRect.IsEmpty()
+        && bBottomText && rItem.mbVisibleText)
+    {
+        // Bottom half (below the hero icon) acts as the dropdown trigger zone for split/dropdown heroes
+        const tools::Long nSplitY = rItem.maImage.GetSizePixel().Height()
+            + vcl::officestudio::ComputeScaledMetric(5.0, nDisplayPct);
+        tools::Rectangle aRect = rItem.maRect;
+        aRect.SetTop(std::min(aRect.Bottom() - 6, aRect.Top() + nSplitY));
+        return aRect;
+    }
+    return rItem.GetDropDownRect(bHorz);
+}
+
+} // namespace
+
+static void ImplDrawDropdownArrow(vcl::RenderContext& rRenderContext, const tools::Rectangle& rDropDownRect,
+                                  bool bSetColor, bool bRotate, bool bFluentChevron = false, double fFluentScale = 1.0 )
+{
+    if (bFluentChevron && !bRotate && rDropDownRect.GetWidth() >= 6 && rDropDownRect.GetHeight() >= 6)
+    {
+        const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+        auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+        rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(bSetColor ? vcl::officestudio::Slate600 : vcl::officestudio::Slate400);
+        const double fScale = std::max(1.0, fFluentScale);
+        const double cx = (rDropDownRect.Left() + rDropDownRect.Right()) * 0.5;
+        const double cy = (rDropDownRect.Top() + rDropDownRect.Bottom()) * 0.5 + 0.5 * fScale;
+        const double hw = std::clamp(rDropDownRect.GetWidth() * 0.28, 2.5 * fScale, 3.8 * fScale);
+        const double hh = std::max(1.5 * fScale, hw * 0.5);
+        basegfx::B2DPolygon aChevron;
+        aChevron.append(basegfx::B2DPoint(cx - hw, cy - hh));
+        aChevron.append(basegfx::B2DPoint(cx, cy + hh));
+        aChevron.append(basegfx::B2DPoint(cx + hw, cy - hh));
+        rRenderContext.DrawPolyLine(aChevron, 1.3 * fScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+        rRenderContext.SetAntialiasing(nOldAA);
+        return;
+    }
+
     auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
     rRenderContext.SetLineColor();
 
@@ -2511,6 +2744,55 @@ void ToolBox::ImplDrawButton(vcl::RenderContext& rRenderContext, const tools::Re
     // draws toolbar button background either native or using a coloured selection
     // if bIsWindow is true, the corresponding item is a control and only a selection border will be drawn
 
+    const RibbonFluentStyle eFluentStyle = lcl_getFluentToolBoxStyle(this);
+    if (eFluentStyle != RibbonFluentStyle::None)
+    {
+        if (bIsWindow || rRect.IsEmpty() || (highlight == 0 && !bChecked))
+            return;
+
+        const double fScale = vcl::officestudio::IsEnhancedRibbonToolBox(*this)
+            ? (vcl::officestudio::GetRibbonDisplayScalePct(*this) / 100.0)
+            : std::max(1.0, static_cast<double>(rRenderContext.GetDPIScaleFactor()));
+        const double x1 = static_cast<double>(rRect.Left()) + 1.0 * fScale;
+        const double y1 = static_cast<double>(rRect.Top()) + 1.0 * fScale;
+        const double x2 = static_cast<double>(rRect.Right()) - 1.0 * fScale;
+        const double y2 = static_cast<double>(rRect.Bottom()) - 1.0 * fScale;
+        if (x2 > x1 + 2.0 && y2 > y1 + 2.0)
+        {
+            const bool bCalc = (eFluentStyle == RibbonFluentStyle::CalcGreen);
+            Color aFill = bCalc ? vcl::officestudio::CalcBtnHoverBg : vcl::officestudio::HoverBg;
+            Color aBorder = bCalc ? vcl::officestudio::CalcBtnHoverBorder : vcl::officestudio::Divider;
+            if (highlight == 1 || (bChecked && highlight == 2))
+            {
+                aFill = bCalc ? vcl::officestudio::CalcBtnPressedBg : vcl::officestudio::PressedBg;
+                aBorder = bCalc ? vcl::officestudio::CalcAccent : vcl::officestudio::PressedBorder;
+            }
+            else if (bChecked)
+            {
+                aFill = bCalc ? vcl::officestudio::CalcAccentSoft : vcl::officestudio::CheckedBg;
+                aBorder = bCalc ? vcl::officestudio::CalcAccentBorder : vcl::officestudio::CheckedBorder;
+            }
+
+            const double rad = 3.0 * fScale;
+            const double rx = std::clamp((2.0 * rad) / std::max(1.0, x2 - x1), 0.0, 1.0);
+            const double ry = std::clamp((2.0 * rad) / std::max(1.0, y2 - y1), 0.0, 1.0);
+            const basegfx::B2DPolygon aPoly = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(x1, y1, x2, y2), rx, ry);
+
+            const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+            auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+            rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+            rRenderContext.SetLineColor();
+            rRenderContext.SetFillColor(aFill);
+            rRenderContext.DrawPolygon(aPoly);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(aBorder);
+            rRenderContext.DrawPolyLine(aPoly, 1.0 * fScale, basegfx::B2DLineJoin::Round);
+            rRenderContext.SetAntialiasing(nOldAA);
+        }
+        return;
+    }
+
     bool bNativeOk = false;
     if( !bIsWindow && rRenderContext.IsNativeControlSupported( ControlType::Toolbar, ControlPart::Button ) )
     {
@@ -2594,121 +2876,257 @@ void ToolBox::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplToolItems::si
     tools::Long    nBtnHeight = aBtnSize.Height()-SMALLBUTTON_VSIZE;
     Size    aImageSize;
 
+    const bool bEnhancedRibbon = vcl::officestudio::IsEnhancedRibbonToolBox(*this);
+    const RibbonFluentStyle eFluentStyle = lcl_getFluentToolBoxStyle(this);
+    const bool bFluentRibbon = (eFluentStyle != RibbonFluentStyle::None);
+    const sal_Int32 nDisplayPct = bEnhancedRibbon ? vcl::officestudio::GetRibbonDisplayScalePct(*this) : 100;
     const bool bDropDown = (pItem->mnBits & ToolBoxItemBits::DROPDOWN) == ToolBoxItemBits::DROPDOWN;
     tools::Rectangle aDropDownRect;
     if (bDropDown)
-        aDropDownRect = pItem->GetDropDownRect(mbHorz);
+        aDropDownRect = bEnhancedRibbon
+            ? lcl_GetEnhancedDropDownRect(*pItem, mbHorz,
+                                          meTextPosition == ToolBoxTextPosition::Bottom, nDisplayPct)
+            : pItem->GetDropDownRect(mbHorz);
+    const bool bBottomHero = bEnhancedRibbon && meTextPosition == ToolBoxTextPosition::Bottom && bText;
+    const bool bRotateText = bText && pItem->mbVisibleText && !ImplIsFloatingMode()
+                             && ((meAlign == WindowAlign::Left) || (meAlign == WindowAlign::Right));
 
-    if ( bImage )
+    bool bRotate = false;
+    tools::Rectangle aHeroChevronRect;
+    if (bEnhancedRibbon && !bRotateText)
     {
-        const Image* pImage = &(pItem->maImage);
-        aImageSize = pImage->GetSizePixel();
+        if (bImage)
+            aImageSize = pItem->maImage.GetSizePixel();
 
-        // #i35563# the dontknow state indicates different states at the same time
-        // which should not be rendered disabled but normal
+        OUString sHeroL1, sHeroL2;
+        if (bBottomHero)
+            lcl_SplitHeroLabel(pItem->maText, *GetOutDev(), vcl::officestudio::ComputeScaledMetric(68.0, nDisplayPct),
+                               sHeroL1, sHeroL2);
 
-        // draw the image
-        nImageOffX = nOffX;
-        nImageOffY = nOffY;
-        if ( ( (pItem->mnBits & (ToolBoxItemBits::LEFT|ToolBoxItemBits::DROPDOWN)) || bText )
-            && ( meTextPosition == ToolBoxTextPosition::Right ) )
+        const Size aTxtSize = bText
+            ? Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight())
+            : Size();
+
+        const tools::Long nBtnW = aBtnSize.Width();
+        const tools::Long nBtnH = aBtnSize.Height();
+        const tools::Long nDropW = (bDropDown && !bBottomHero) ? aDropDownRect.getOpenWidth() : 0;
+        const tools::Long nContentW = std::max<tools::Long>(1, nBtnW - nDropW);
+
+        nImageOffX = pItem->maRect.Left();
+        nImageOffY = pItem->maRect.Top();
+        tools::Long nTextOffX = pItem->maRect.Left();
+        tools::Long nTextOffY = pItem->maRect.Top();
+
+        if (bImage && !bText)
         {
-            // left align also to leave space for drop down arrow
-            // and when drawing text+image
-            // just center in y, except for vertical (ie rotated text)
-            if( mbHorz || !bText )
-                nImageOffY += (nBtnHeight-aImageSize.Height())/2;
+            nImageOffX += (nContentW - aImageSize.Width()) / 2;
+            nImageOffY += (nBtnH - aImageSize.Height()) / 2;
         }
-        else
+        else if (bImage && bText && !bBottomHero)
         {
-            nImageOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aImageSize.Width())/2;
-            if ( meTextPosition == ToolBoxTextPosition::Right )
-                nImageOffY += (nBtnHeight-aImageSize.Height())/2;
+            const tools::Long nPadL = vcl::officestudio::ComputeScaledMetric(5.0, nDisplayPct);
+            const tools::Long nGap = vcl::officestudio::ComputeScaledMetric(5.0, nDisplayPct);
+            nImageOffX += nPadL;
+            nImageOffY += (nBtnH - aImageSize.Height()) / 2;
+            nTextOffX = nImageOffX + aImageSize.Width() + nGap;
+            nTextOffY += (nBtnH - aTxtSize.Height()) / 2;
         }
-        if ( nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) )
+        else if (bBottomHero)
         {
-            if( bHasOpenPopup )
+            const tools::Long nGap = vcl::officestudio::ComputeScaledMetric(2.0, nDisplayPct);
+            const tools::Long nLineH = aTxtSize.Height();
+            const tools::Long nBotChevH = (bDropDown && sHeroL2.isEmpty())
+                ? vcl::officestudio::ComputeScaledMetric(9.0, nDisplayPct)
+                : 0;
+            const tools::Long nTextBlockH = (sHeroL2.isEmpty() ? nLineH : nLineH * 2) + nBotChevH;
+            const tools::Long nTotalH = aImageSize.Height() + nGap + nTextBlockH;
+            nImageOffX += (nContentW - aImageSize.Width()) / 2;
+            nImageOffY += std::max<tools::Long>(vcl::officestudio::ComputeScaledMetric(4.0, nDisplayPct), (nBtnH - nTotalH) / 2);
+            nTextOffY = nImageOffY + aImageSize.Height() + nGap;
+        }
+        else if (bText)
+        {
+            nTextOffX += (nContentW - aTxtSize.Width()) / 2;
+            nTextOffY += (nBtnH - aTxtSize.Height()) / 2;
+        }
+
+        if ((bImage || bText) && (nHighlight != 0 || (pItem->meState == TRISTATE_TRUE)))
+        {
+            if (bHasOpenPopup)
                 ImplDrawFloatwinBorder(rRenderContext, pItem);
             else
                 ImplDrawButton(rRenderContext, aButtonRect, nHighlight, pItem->meState == TRISTATE_TRUE,
                                pItem->mbEnabled && IsEnabled(), pItem->mbShowWindow);
         }
 
-        // determine drawing flags
-        DrawImageFlags nImageStyle = DrawImageFlags::NONE;
-        if ( nHighlight && rStyleSettings.GetHighContrastMode() )
-            nImageStyle |= DrawImageFlags::Invert;
-        else if ( !pItem->mbEnabled || !IsEnabled() )
-            nImageStyle |= DrawImageFlags::Disable;
-
-        rRenderContext.DrawImage(Point( nImageOffX, nImageOffY ), *pImage, nImageStyle);
-    }
-
-    // draw the text
-    bool bRotate = false;
-    if ( bText )
-    {
-        const Size aTxtSize(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight());
-        tools::Long nTextOffX = nOffX;
-        tools::Long nTextOffY = nOffY;
-
-        // rotate text when vertically docked
-        vcl::Font aOldFont = rRenderContext.GetFont();
-        if( pItem->mbVisibleText && !ImplIsFloatingMode() &&
-            ((meAlign == WindowAlign::Left) || (meAlign == WindowAlign::Right)) )
+        if (bImage)
         {
-            bRotate = true;
+            DrawImageFlags nImageStyle = DrawImageFlags::NONE;
+            if (nHighlight && rStyleSettings.GetHighContrastMode())
+                nImageStyle |= DrawImageFlags::Invert;
+            else if (!pItem->mbEnabled || !IsEnabled())
+                nImageStyle |= DrawImageFlags::Disable;
 
-            vcl::Font aRotateFont = aOldFont;
-            aRotateFont.SetOrientation( 2700_deg10 );
-
-            // center horizontally
-            nTextOffX += aTxtSize.Height();
-            nTextOffX += (nBtnWidth-aTxtSize.Height())/2;
-
-            // add in image offset
-            if( bImage )
-                nTextOffY = nImageOffY + aImageSize.Height() + TB_IMAGETEXTOFFSET;
-
-            rRenderContext.SetFont(aRotateFont);
+            rRenderContext.DrawImage(Point(nImageOffX, nImageOffY), pItem->maImage, nImageStyle);
         }
-        else
+
+        if (bText)
         {
-            if ( meTextPosition == ToolBoxTextPosition::Right )
+            auto popTxtColor = rRenderContext.ScopedPush(vcl::PushFlags::TEXTCOLOR);
+            rRenderContext.SetTextColor((pItem->mbEnabled && IsEnabled())
+                ? vcl::officestudio::TextPrimary
+                : vcl::officestudio::Slate400);
+            DrawTextFlags nTextStyle = DrawTextFlags::NONE;
+            if (!pItem->mbEnabled)
+                nTextStyle |= DrawTextFlags::Disable;
+
+            if (bBottomHero)
             {
-                // center vertically
-                nTextOffY += (nBtnHeight-aTxtSize.Height())/2;
+                const tools::Long nL1W = GetOutDev()->GetTextWidth(sHeroL1);
+                const tools::Long nL1X = pItem->maRect.Left() + (nContentW - nL1W) / 2;
+                rRenderContext.DrawText(Point(nL1X, nTextOffY), sHeroL1, 0, sHeroL1.getLength());
+                if (!sHeroL2.isEmpty())
+                {
+                    const tools::Long nL2W = GetOutDev()->GetTextWidth(sHeroL2);
+                    const tools::Long nInlW = bDropDown ? vcl::officestudio::ComputeScaledMetric(10.0, nDisplayPct) : 0;
+                    const tools::Long nL2X = pItem->maRect.Left() + (nContentW - (nL2W + nInlW)) / 2;
+                    const tools::Long nL2Y = nTextOffY + aTxtSize.Height() - 1;
+                    rRenderContext.DrawText(Point(nL2X, nL2Y), sHeroL2, 0, sHeroL2.getLength());
+                    if (bDropDown)
+                    {
+                        aHeroChevronRect = tools::Rectangle(
+                            Point(nL2X + nL2W + 1, nL2Y + 1),
+                            Size(vcl::officestudio::ComputeScaledMetric(10.0, nDisplayPct), aTxtSize.Height()));
+                    }
+                }
+                else if (bDropDown)
+                {
+                    const tools::Long nChW = vcl::officestudio::ComputeScaledMetric(12.0, nDisplayPct);
+                    const tools::Long nChH = vcl::officestudio::ComputeScaledMetric(9.0, nDisplayPct);
+                    aHeroChevronRect = tools::Rectangle(
+                        Point(pItem->maRect.Left() + (nContentW - nChW) / 2, nTextOffY + aTxtSize.Height() - 1),
+                        Size(nChW, nChH));
+                }
+            }
+            else
+            {
+                rRenderContext.DrawCtrlText(Point(nTextOffX, nTextOffY), pItem->maText,
+                                            0, pItem->maText.getLength(), nTextStyle);
+            }
+        }
+    }
+    else
+    {
+        if ( bImage )
+        {
+            const Image* pImage = &(pItem->maImage);
+            aImageSize = pImage->GetSizePixel();
+
+            // #i35563# the dontknow state indicates different states at the same time
+            // which should not be rendered disabled but normal
+
+            // draw the image
+            nImageOffX = nOffX;
+            nImageOffY = nOffY;
+            if ( ( (pItem->mnBits & (ToolBoxItemBits::LEFT|ToolBoxItemBits::DROPDOWN)) || bText )
+                && ( meTextPosition == ToolBoxTextPosition::Right ) )
+            {
+                // left align also to leave space for drop down arrow
+                // and when drawing text+image
+                // just center in y, except for vertical (ie rotated text)
+                if( mbHorz || !bText )
+                    nImageOffY += (nBtnHeight-aImageSize.Height())/2;
+            }
+            else
+            {
+                nImageOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aImageSize.Width())/2;
+                if ( meTextPosition == ToolBoxTextPosition::Right )
+                    nImageOffY += (nBtnHeight-aImageSize.Height())/2;
+            }
+            if ( nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) )
+            {
+                if( bHasOpenPopup )
+                    ImplDrawFloatwinBorder(rRenderContext, pItem);
+                else
+                    ImplDrawButton(rRenderContext, aButtonRect, nHighlight, pItem->meState == TRISTATE_TRUE,
+                                   pItem->mbEnabled && IsEnabled(), pItem->mbShowWindow);
+            }
+
+            // determine drawing flags
+            DrawImageFlags nImageStyle = DrawImageFlags::NONE;
+            if ( nHighlight && rStyleSettings.GetHighContrastMode() )
+                nImageStyle |= DrawImageFlags::Invert;
+            else if ( !pItem->mbEnabled || !IsEnabled() )
+                nImageStyle |= DrawImageFlags::Disable;
+
+            rRenderContext.DrawImage(Point( nImageOffX, nImageOffY ), *pImage, nImageStyle);
+        }
+
+        // draw the text
+        if ( bText )
+        {
+            const Size aTxtSize(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight());
+            tools::Long nTextOffX = nOffX;
+            tools::Long nTextOffY = nOffY;
+
+            // rotate text when vertically docked
+            vcl::Font aOldFont = rRenderContext.GetFont();
+            if( pItem->mbVisibleText && !ImplIsFloatingMode() &&
+                ((meAlign == WindowAlign::Left) || (meAlign == WindowAlign::Right)) )
+            {
+                bRotate = true;
+
+                vcl::Font aRotateFont = aOldFont;
+                aRotateFont.SetOrientation( 2700_deg10 );
+
+                // center horizontally
+                nTextOffX += aTxtSize.Height();
+                nTextOffX += (nBtnWidth-aTxtSize.Height())/2;
 
                 // add in image offset
                 if( bImage )
-                    nTextOffX = nImageOffX + aImageSize.Width() + TB_IMAGETEXTOFFSET;
+                    nTextOffY = nImageOffY + aImageSize.Height() + TB_IMAGETEXTOFFSET;
+
+                rRenderContext.SetFont(aRotateFont);
             }
             else
             {
-                // center horizontally
-                nTextOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aTxtSize.Width() - TB_IMAGETEXTOFFSET)/2;
-                // set vertical position
-                nTextOffY += nBtnHeight - aTxtSize.Height();
+                if ( meTextPosition == ToolBoxTextPosition::Right )
+                {
+                    // center vertically
+                    nTextOffY += (nBtnHeight-aTxtSize.Height())/2;
+
+                    // add in image offset
+                    if( bImage )
+                        nTextOffX = nImageOffX + aImageSize.Width() + TB_IMAGETEXTOFFSET;
+                }
+                else
+                {
+                    // center horizontally
+                    nTextOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aTxtSize.Width() - TB_IMAGETEXTOFFSET)/2;
+                    // set vertical position
+                    nTextOffY += nBtnHeight - aTxtSize.Height();
+                }
             }
-        }
 
-        // draw selection only if not already drawn during image output (see above)
-        if ( !bImage && (nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) ) )
-        {
-            if( bHasOpenPopup )
-                ImplDrawFloatwinBorder(rRenderContext, pItem);
-            else
-                ImplDrawButton(rRenderContext, pItem->maRect, nHighlight, pItem->meState == TRISTATE_TRUE,
-                               pItem->mbEnabled && IsEnabled(), pItem->mbShowWindow );
-        }
+            // draw selection only if not already drawn during image output (see above)
+            if ( !bImage && (nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) ) )
+            {
+                if( bHasOpenPopup )
+                    ImplDrawFloatwinBorder(rRenderContext, pItem);
+                else
+                    ImplDrawButton(rRenderContext, pItem->maRect, nHighlight, pItem->meState == TRISTATE_TRUE,
+                                   pItem->mbEnabled && IsEnabled(), pItem->mbShowWindow );
+            }
 
-        DrawTextFlags nTextStyle = DrawTextFlags::NONE;
-        if ( !pItem->mbEnabled )
-            nTextStyle |= DrawTextFlags::Disable;
-        rRenderContext.DrawCtrlText( Point( nTextOffX, nTextOffY ), pItem->maText,
-                      0, pItem->maText.getLength(), nTextStyle );
-        if ( bRotate )
-            SetFont( aOldFont );
+            DrawTextFlags nTextStyle = DrawTextFlags::NONE;
+            if ( !pItem->mbEnabled )
+                nTextStyle |= DrawTextFlags::Disable;
+            rRenderContext.DrawCtrlText( Point( nTextOffX, nTextOffY ), pItem->maText,
+                          0, pItem->maText.getLength(), nTextStyle );
+            if ( bRotate )
+                SetFont( aOldFont );
+        }
     }
 
     // paint optional drop down arrow
@@ -2725,18 +3143,48 @@ void ToolBox::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplToolItems::si
     // dropdown only will be painted without inner border
     if( (pItem->mnBits & ToolBoxItemBits::DROPDOWNONLY) != ToolBoxItemBits::DROPDOWNONLY )
     {
-        ImplErase(rRenderContext, aDropDownRect, nHighlight != 0, bHasOpenPopup);
-
-        if( nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) )
+        if (bFluentRibbon)
         {
-            if( bHasOpenPopup )
+            if (bHasOpenPopup)
                 ImplDrawFloatwinBorder(rRenderContext, pItem);
-            else
-                ImplDrawButton(rRenderContext, aDropDownRect, nHighlight, pItem->meState == TRISTATE_TRUE,
-                               pItem->mbEnabled && IsEnabled(), false);
+            else if (bBottomHero && (nHighlight != 0 || (pItem->meState == TRISTATE_TRUE)))
+            {
+                auto popSep = rRenderContext.ScopedPush(vcl::PushFlags::LINECOLOR);
+                rRenderContext.SetLineColor(vcl::officestudio::Divider);
+                rRenderContext.DrawLine(
+                    Point(aButtonRect.Left() + 4, aDropDownRect.Top()),
+                    Point(aButtonRect.Right() - 4, aDropDownRect.Top()));
+            }
+            else if ((nHighlight != 0 || (pItem->meState == TRISTATE_TRUE)) && aDropDownRect.GetHeight() > 6)
+            {
+                auto popSep = rRenderContext.ScopedPush(vcl::PushFlags::LINECOLOR);
+                rRenderContext.SetLineColor(vcl::officestudio::Divider);
+                rRenderContext.DrawLine(
+                    Point(aDropDownRect.Left(), aDropDownRect.Top() + 4),
+                    Point(aDropDownRect.Left(), aDropDownRect.Bottom() - 4));
+            }
+        }
+        else
+        {
+            ImplErase(rRenderContext, aDropDownRect, nHighlight != 0, bHasOpenPopup);
+
+            if( nHighlight != 0 || (pItem->meState == TRISTATE_TRUE) )
+            {
+                if( bHasOpenPopup )
+                    ImplDrawFloatwinBorder(rRenderContext, pItem);
+                else
+                    ImplDrawButton(rRenderContext, aDropDownRect, nHighlight, pItem->meState == TRISTATE_TRUE,
+                                   pItem->mbEnabled && IsEnabled(), false);
+            }
         }
     }
-    ImplDrawDropdownArrow(rRenderContext, aDropDownRect, bSetColor, bRotate);
+    const double fChevronScale = bEnhancedRibbon
+        ? (nDisplayPct / 100.0)
+        : std::max(1.0, static_cast<double>(rRenderContext.GetDPIScaleFactor()));
+    if (bBottomHero && !aHeroChevronRect.IsEmpty())
+        lcl_DrawFluentChevron(rRenderContext, aHeroChevronRect, pItem->mbEnabled && IsEnabled(), fChevronScale);
+    else
+        ImplDrawDropdownArrow(rRenderContext, aDropDownRect, bSetColor, bRotate, bFluentRibbon, fChevronScale);
 }
 
 void ToolBox::ImplDrawFloatwinBorder(vcl::RenderContext& rRenderContext, ImplToolItem const * pItem)
@@ -3209,8 +3657,15 @@ void ToolBox::MouseButtonDown( const MouseEvent& rMEvt )
             // was dropdown arrow pressed
             if( mpData->m_aItems[nNewPos].mnBits & ToolBoxItemBits::DROPDOWN )
             {
+                const bool bEnhanced = vcl::officestudio::IsEnhancedRibbonToolBox(*this);
+                const tools::Rectangle aHitDropRect = bEnhanced
+                    ? lcl_GetEnhancedDropDownRect(
+                          mpData->m_aItems[nNewPos], mbHorz,
+                          meTextPosition == ToolBoxTextPosition::Bottom,
+                          vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this))
+                    : mpData->m_aItems[nNewPos].GetDropDownRect( mbHorz );
                 if( ( (mpData->m_aItems[nNewPos].mnBits & ToolBoxItemBits::DROPDOWNONLY) == ToolBoxItemBits::DROPDOWNONLY)
-                    || mpData->m_aItems[nNewPos].GetDropDownRect( mbHorz ).Contains( aMousePos ))
+                    || aHitDropRect.Contains( aMousePos ))
                 {
                     // dropdownonly always triggers the dropdown handler, over the whole button area
 
@@ -4745,6 +5200,9 @@ bool ToolBox::ImplChangeHighlightUpDn( bool bUp, bool bNoCycle )
 
 void ToolBox::ImplShowFocus()
 {
+    if (lcl_getFluentToolBoxStyle(this) != RibbonFluentStyle::None)
+        return;
+
     if( mnHighItemId && HasFocus() )
     {
         ImplToolItem* pItem = ImplGetItem( mnHighItemId );

@@ -34,6 +34,14 @@
 #include <docfunc.hxx>
 #include <svx/svxids.hrc>
 #include <filter.hxx>
+#include <scitems.hxx>
+#include <scresid.hxx>
+#include <globstr.hrc>
+#include <stlsheet.hxx>
+#include <editeng/fontitem.hxx>
+#include <editeng/fhgtitem.hxx>
+#include <vcl/outdev.hxx>
+#include <vcl/svapp.hxx>
 #include <functional>
 
 using namespace com::sun::star;
@@ -44,12 +52,15 @@ bool ScDocShell::InitNew( const uno::Reference < embed::XStorage >& xStor )
 
     m_pDocument->MakeTable(0);
 
+    constexpr sal_Int32 nInitColWidthTwip = 960;   // 48 pt = 64 px at 96 DPI (Excel 2021)
+    constexpr sal_uInt16 nInitRowHeightTwip = 300; // 15 pt = 20 px at 96 DPI (Excel 2021)
+
     //  Additional tables are created by the first View, if bIsEmpty is still sal_True
     if( bRet )
     {
         Size aSize(
-            o3tl::convert(STD_COL_WIDTH * OLE_STD_CELLS_X, o3tl::Length::twip, o3tl::Length::mm100),
-            o3tl::convert(ScGlobal::nStdRowHeight * OLE_STD_CELLS_Y, o3tl::Length::twip,
+            o3tl::convert(nInitColWidthTwip * OLE_STD_CELLS_X, o3tl::Length::twip, o3tl::Length::mm100),
+            o3tl::convert(nInitRowHeightTwip * OLE_STD_CELLS_Y, o3tl::Length::twip,
                           o3tl::Length::mm100));
         // Also adjust start here
         SetVisAreaOrSize( tools::Rectangle( Point(), aSize ) );
@@ -77,7 +88,31 @@ bool ScDocShell::InitNew( const uno::Reference < embed::XStorage >& xStor )
             pOrcus->importODS_Styles(*m_pDocument, aPath);
             pStyleSheetPool->setAllParaStandard();
         }
+
+        if (SfxStyleSheetBase* pStdStyle = pStyleSheetPool->Find(
+                ScResId(STR_STYLENAME_STANDARD), SfxStyleFamily::Para))
+        {
+            SfxItemSet& rStdSet = pStdStyle->GetItemSet();
+            OutputDevice* pDefDev = Application::GetDefaultDevice();
+            OUString sFontName;
+            if (pDefDev && pDefDev->IsFontAvailable(u"Calibri"))
+                sFontName = u"Calibri"_ustr;
+            else if (pDefDev && pDefDev->IsFontAvailable(u"Carlito"))
+                sFontName = u"Carlito"_ustr;
+            if (!sFontName.isEmpty())
+            {
+                SvxFontItem aLatinFont(FAMILY_SWISS, sFontName, u""_ustr, PITCH_VARIABLE,
+                                       RTL_TEXTENCODING_DONTKNOW, ATTR_FONT);
+                rStdSet.Put(aLatinFont);
+            }
+            rStdSet.Put(SvxFontHeightItem(220, 100, ATTR_FONT_HEIGHT));
+        }
+        m_pDocument->getCellAttributeHelper().UpdateAllStyleSheets(*m_pDocument);
     }
+
+    for (SCCOL nCol = 0; nCol <= m_pDocument->MaxCol(); ++nCol)
+        m_pDocument->SetColWidthOnly(nCol, 0, nInitColWidthTwip);
+    m_pDocument->SetRowHeightOnly(0, m_pDocument->MaxRow(), 0, nInitRowHeightTwip);
 
     //  SetDocumentModified is not allowed anymore in Load/InitNew!
     InitItems();

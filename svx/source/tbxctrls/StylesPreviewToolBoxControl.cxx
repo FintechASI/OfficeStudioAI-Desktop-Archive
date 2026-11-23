@@ -63,9 +63,9 @@ void StylesPreviewToolBoxControl::InitializeStyles(
             css::uno::Reference<css::container::XNameAccess> xParaStyles;
             xStylesSupplier->getStyleFamilies()->getByName(u"ParagraphStyles"_ustr) >>= xParaStyles;
             static constexpr OUString aWriterStyles[]{
-                u"Standard"_ustr,   u"Text body"_ustr,        u"Heading 1"_ustr, u"Heading 2"_ustr,
-                u"Heading 3"_ustr,  u"Heading 4"_ustr,        u"Title"_ustr,     u"Subtitle"_ustr,
-                u"Quotations"_ustr, u"Preformatted Text"_ustr
+                u"Standard"_ustr,   u"Text body"_ustr,    u"Heading 1"_ustr, u"Heading 2"_ustr,
+                u"Title"_ustr,      u"Subtitle"_ustr,     u"Heading 3"_ustr, u"Quotations"_ustr,
+                u"Preformatted Text"_ustr
             };
             for (const OUString& rStyle : aWriterStyles)
             {
@@ -89,10 +89,12 @@ void StylesPreviewToolBoxControl::InitializeStyles(
         }
         else if (xServices->supportsService(u"com.sun.star.sheet.SpreadsheetDocument"_ustr))
         {
-            static constexpr OUString aCalcStyles[]{ u"Default"_ustr,   u"Accent 1"_ustr,
-                                                     u"Accent 2"_ustr,  u"Accent 3"_ustr,
-                                                     u"Heading 1"_ustr, u"Heading 2"_ustr,
-                                                     u"Result"_ustr };
+            static constexpr OUString aCalcStyles[]{
+                u"Default"_ustr,   u"Bad"_ustr,       u"Good"_ustr,      u"Neutral"_ustr,
+                u"Note"_ustr,      u"Accent 2"_ustr,  u"Heading 1"_ustr, u"Heading 2"_ustr,
+                u"Accent 1"_ustr,  u"Accent 3"_ustr,  u"Result"_ustr,    u"Warning"_ustr,
+                u"Error"_ustr
+            };
             css::uno::Reference<css::container::XNameAccess> xCellStyles;
             xStylesSupplier->getStyleFamilies()->getByName(u"CellStyles"_ustr) >>= xCellStyles;
             for (const OUString& sStyleName : aCalcStyles)

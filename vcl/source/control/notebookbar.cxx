@@ -20,6 +20,7 @@
 #include <vcl/syswin.hxx>
 #include <vcl/taskpanelist.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/NotebookbarContextControl.hxx>
 #include <cppuhelper/implbase.hxx>
 #include <comphelper/processfactory.hxx>
@@ -295,20 +296,28 @@ void NotebookBar::StateChanged(const  StateChangedType nStateChange )
 
 void NotebookBar::UpdateBackground()
 {
-    Color aColor = GetSettings().GetStyleSettings().GetDialogColor();
+    const StyleSettings& rStyle = GetSettings().GetStyleSettings();
+    Color aColor = rStyle.GetDialogColor();
     // macOS excluded since AquaGraphicsBackendBase::performDrawNativeControl() case ControlType::TabPane
     // draws the whole Notebookbar and does not allow to just color the background
 
-    const sal_uInt8 cTrans = officecfg::Office::Common::Misc::NotebookbarColorTransparency::get();
+    if (vcl::officestudio::IsLightTheme(rStyle) && !ThemeColors::IsThemeEnabled())
+    {
+        aColor = vcl::officestudio::RibbonHeaderBg;
+    }
+    else
+    {
+        const sal_uInt8 cTrans = officecfg::Office::Common::Misc::NotebookbarColorTransparency::get();
 
-    if (m_sModule == "com.sun.star.text.TextDocument")
-        aColor.Merge(Color(0x1a, 0x85, 0xd1), cTrans); // #1a85d1
-    else if (m_sModule == "com.sun.star.sheet.SpreadsheetDocument")
-        aColor.Merge(Color(0x3c, 0xbc, 0x45), cTrans); // #3cbc45
-    else if (m_sModule == "com.sun.star.presentation.PresentationDocument")
-        aColor.Merge(Color(0xe7, 0x57, 0x29), cTrans); // #e75729
-    else if (m_sModule == "com.sun.star.drawing.DrawingDocument")
-        aColor.Merge(Color(0xe5, 0xb4, 0x43), cTrans); // #e5b443
+        if (m_sModule == "com.sun.star.text.TextDocument")
+            aColor.Merge(Color(0x1a, 0x85, 0xd1), cTrans); // #1a85d1
+        else if (m_sModule == "com.sun.star.sheet.SpreadsheetDocument")
+            aColor.Merge(Color(0x3c, 0xbc, 0x45), cTrans); // #3cbc45
+        else if (m_sModule == "com.sun.star.presentation.PresentationDocument")
+            aColor.Merge(Color(0xe7, 0x57, 0x29), cTrans); // #e75729
+        else if (m_sModule == "com.sun.star.drawing.DrawingDocument")
+            aColor.Merge(Color(0xe5, 0xb4, 0x43), cTrans); // #e5b443
+    }
 
     SetBackground(Wallpaper(aColor));
     UpdateDefaultSettings();
@@ -322,15 +331,34 @@ void NotebookBar::UpdateDefaultSettings()
     AllSettings aAllSettings( GetSettings() );
     StyleSettings aStyleSet( aAllSettings.GetStyleSettings() );
 
-    ::Color aTextColor = aStyleSet.GetFieldTextColor();
-    aStyleSet.SetDialogTextColor( aTextColor );
-    aStyleSet.SetButtonTextColor( aTextColor );
-    aStyleSet.SetRadioCheckTextColor( aTextColor );
-    aStyleSet.SetGroupTextColor( aTextColor );
-    aStyleSet.SetLabelTextColor( aTextColor );
-    aStyleSet.SetWindowTextColor( aTextColor );
-    aStyleSet.SetTabTextColor(aTextColor);
-    aStyleSet.SetToolTextColor(aTextColor);
+    if (vcl::officestudio::IsLightTheme(aStyleSet) && !ThemeColors::IsThemeEnabled())
+    {
+        aStyleSet.SetDialogColor(vcl::officestudio::RibbonCardBg);
+        aStyleSet.SetFaceColor(vcl::officestudio::RibbonCardBg);
+        aStyleSet.SetLightColor(vcl::officestudio::Divider);
+        aStyleSet.SetShadowColor(vcl::officestudio::BorderSubtle);
+        const Color& aTextColor = vcl::officestudio::TextPrimary;
+        aStyleSet.SetDialogTextColor(aTextColor);
+        aStyleSet.SetButtonTextColor(aTextColor);
+        aStyleSet.SetRadioCheckTextColor(aTextColor);
+        aStyleSet.SetGroupTextColor(vcl::officestudio::TextSecondary);
+        aStyleSet.SetLabelTextColor(vcl::officestudio::TextSecondary);
+        aStyleSet.SetWindowTextColor(aTextColor);
+        aStyleSet.SetTabTextColor(vcl::officestudio::TextSecondary);
+        aStyleSet.SetToolTextColor(aTextColor);
+    }
+    else
+    {
+        ::Color aTextColor = aStyleSet.GetFieldTextColor();
+        aStyleSet.SetDialogTextColor( aTextColor );
+        aStyleSet.SetButtonTextColor( aTextColor );
+        aStyleSet.SetRadioCheckTextColor( aTextColor );
+        aStyleSet.SetGroupTextColor( aTextColor );
+        aStyleSet.SetLabelTextColor( aTextColor );
+        aStyleSet.SetWindowTextColor( aTextColor );
+        aStyleSet.SetTabTextColor(aTextColor);
+        aStyleSet.SetToolTextColor(aTextColor);
+    }
 
     aAllSettings.SetStyleSettings(aStyleSet);
     DefaultSettings = std::move(aAllSettings);

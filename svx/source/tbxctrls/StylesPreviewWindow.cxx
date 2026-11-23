@@ -67,6 +67,10 @@
 #include <com/sun/star/i18n/ScriptType.hpp>
 
 #include <vcl/commandevent.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <com/sun/star/frame/XController.hpp>
+#include <com/sun/star/lang/XServiceInfo.hpp>
+#include <cmath>
 
 namespace
 {
@@ -179,9 +183,12 @@ void StylePoolChangeListener::Notify(SfxBroadcaster& /*rBC*/, const SfxHint& rHi
     m_pPreviewControl->RequestStylesListUpdate();
 }
 
-StyleItemController::StyleItemController(StylePreviewDescriptor aStyleName)
+StyleItemController::StyleItemController(StylePreviewDescriptor aStyleName, bool bIsCalc,
+                                         sal_Int32 nDisplayPct)
     : m_eStyleFamily(SfxStyleFamily::Para)
     , m_aStyleName(std::move(aStyleName))
+    , m_bIsCalc(bIsCalc)
+    , m_nDisplayPct(std::max<sal_Int32>(100, nDisplayPct))
 {
 }
 
@@ -320,7 +327,7 @@ void StyleItemController::DrawEntry(vcl::RenderContext& rRenderContext)
     Color aOriginalColor = rRenderContext.GetFillColor();
     Color aOriginalLineColor = rRenderContext.GetLineColor();
 
-    DrawContentBackground(rRenderContext, aContentRect, aOriginalColor);
+    DrawContentBackground(rRenderContext, aContentRect, COL_WHITE);
 
     std::optional<SfxItemSet> const pItemSet(pStyle->GetItemSetForPreview());
     if (!pItemSet)
@@ -341,35 +348,64 @@ void StyleItemController::DrawEntry(vcl::RenderContext& rRenderContext)
     const SvxFontHeightItem* const pFontHeightItem
         = pItemSet->GetItem<SvxFontHeightItem>(SID_ATTR_CHAR_FONTHEIGHT);
 
+    const double fScale = static_cast<double>(std::max<sal_Int32>(100, m_nDisplayPct)) / 100.0;
+
     if (pFontItem && pFontHeightItem)
     {
         Size aFontSize(0, pFontHeightItem->GetHeight());
-        Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(pShell->GetMapUnit())));
+        Size aPixelSize(rRenderContext.LogicToPixel(
+            aFontSize, MapMode(m_bIsCalc ? MapUnit::MapTwip : pShell->GetMapUnit())));
+        aPixelSize.setWidth(0);
+        const tools::Long nMinFontPx = std::lround((m_bIsCalc ? 10.0 : 11.0) * fScale);
+        const tools::Long nMaxFontPx = std::lround((m_bIsCalc ? 13.0 : 19.0) * fScale);
+        aPixelSize.setHeight(std::clamp<tools::Long>(std::lround(aPixelSize.Height() * fScale),
+                                                     nMinFontPx, nMaxFontPx));
 
         SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
         rRenderContext.SetFont(aFont);
 
         Color aFontCol = GetTextColorFromItemSet(pItemSet);
         if (aFontCol != COL_AUTO)
+        {
             rRenderContext.SetTextColor(aFontCol);
+        }
+        else if (!m_bIsCalc)
+        {
+            if (m_aStyleName.commonName == u"Heading 1"
+                || m_aStyleName.commonName == u"Heading 2"
+                || m_aStyleName.commonName == u"Heading 3")
+                rRenderContext.SetTextColor(vcl::officestudio::DocsHeadingBlue);
+            else if (m_aStyleName.commonName == u"Subtitle")
+                rRenderContext.SetTextColor(Color(0x59, 0x59, 0x59));
+            else
+                rRenderContext.SetTextColor(vcl::officestudio::TextPrimary);
+        }
+        else
+        {
+            rRenderContext.SetTextColor(vcl::officestudio::TextPrimary);
+        }
 
         aFontHighlight = GetHighlightColorFromItemSet(pItemSet);
 
+        bool bHasSolidBack = false;
         css::drawing::FillStyle style = GetFillStyleFromItemSet(pItemSet);
-
-        switch (style)
+        if (style == css::drawing::FillStyle_SOLID)
         {
-            case css::drawing::FillStyle_SOLID:
+            Color aBackCol = GetBackgroundColorFromItemSet(pItemSet);
+            if (aBackCol != COL_AUTO)
             {
-                Color aBackCol = GetBackgroundColorFromItemSet(pItemSet);
-                if (aBackCol != COL_AUTO)
-                    DrawContentBackground(rRenderContext, aContentRect, aBackCol);
+                DrawContentBackground(rRenderContext, aContentRect, aBackCol);
+                bHasSolidBack = true;
             }
-            break;
-
-            default:
-                break;
-                //TODO Draw the other background styles: gradient, hatching and bitmap
+        }
+        if (!bHasSolidBack)
+        {
+            if (const SvxBrushItem* pBrush = pItemSet->GetItem<SvxBrushItem>(SID_ATTR_BRUSH))
+            {
+                const Color aBrushCol = pBrush->GetColor();
+                if (aBrushCol != COL_TRANSPARENT && aBrushCol != COL_AUTO)
+                    DrawContentBackground(rRenderContext, aContentRect, aBrushCol);
+            }
         }
     }
 
@@ -377,6 +413,13 @@ void StyleItemController::DrawEntry(vcl::RenderContext& rRenderContext)
         DrawHighlight(rRenderContext, aFontHighlight);
 
     DrawText(rRenderContext);
+
+    if (m_bIsCalc)
+    {
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(Color(0xD4, 0xD4, 0xD4));
+        rRenderContext.DrawRect(tools::Rectangle(Point(0, 0), aSize));
+    }
 
     rRenderContext.SetFillColor(aOriginalColor);
     rRenderContext.SetLineColor(aOriginalLineColor);
@@ -413,28 +456,67 @@ void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Colo
 
 void StyleItemController::DrawText(vcl::RenderContext& rRenderContext)
 {
-    const SalLayoutGlyphs* layoutGlyphs = SalLayoutGlyphsCache::self()->GetLayoutGlyphs(
-        &rRenderContext, m_aStyleName.translatedName);
-    tools::Rectangle aTextRect;
-    rRenderContext.GetTextBoundRect(aTextRect, m_aStyleName.translatedName, 0, 0, -1, 0, {}, {},
-                                    layoutGlyphs);
+    OUString sDisplayText = m_aStyleName.translatedName;
+    if (m_bIsCalc
+        && (m_aStyleName.commonName == u"Default" || m_aStyleName.translatedName == u"Default"))
+        sDisplayText = u"Normal"_ustr;
+    else if (!m_bIsCalc
+             && (m_aStyleName.commonName == u"Standard"
+                 || m_aStyleName.translatedName == u"Default Paragraph Style"))
+        sDisplayText = u"Normal"_ustr;
 
-    Point aPos(0, 0);
-    aPos.AdjustX(LEFT_MARGIN);
-    aPos.AdjustY((rRenderContext.GetOutputHeightPixel() - aTextRect.Bottom()) / 2);
-
-    rRenderContext.DrawText(aPos, m_aStyleName.translatedName, 0, -1, nullptr, nullptr,
-                            layoutGlyphs);
+    const Size aOutSz(rRenderContext.GetOutputSizePixel());
+    const tools::Long nMargin
+        = std::lround((m_bIsCalc ? 6.0 : 4.0)
+                      * static_cast<double>(std::max<sal_Int32>(100, m_nDisplayPct)) / 100.0);
+    tools::Rectangle aDrawRect(Point(nMargin, 0),
+                               Size(std::max<tools::Long>(1, aOutSz.Width() - nMargin * 2),
+                                    std::max<tools::Long>(1, aOutSz.Height())));
+    const DrawTextFlags eAlign = m_bIsCalc ? DrawTextFlags::Left : DrawTextFlags::Center;
+    rRenderContext.DrawText(aDrawRect, sDisplayText,
+                            eAlign | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
 }
 
 StylesPreviewWindow_Base::StylesPreviewWindow_Base(
     weld::Builder& xBuilder, const StylePreviewList& rDefaultStyles,
-    const css::uno::Reference<css::frame::XFrame>& xFrame)
+    const css::uno::Reference<css::frame::XFrame>& xFrame, sal_Int32 nDisplayPct)
     : m_xFrame(xFrame)
     , m_xStylesView(xBuilder.weld_icon_view(u"stylesview"_ustr))
     , m_aUpdateTask(*this)
     , m_aDefaultStyles(rDefaultStyles)
+    , m_nDisplayPct(std::max<sal_Int32>(100, nDisplayPct))
 {
+    if (m_xFrame.is())
+    {
+        try
+        {
+            css::uno::Reference<css::frame::XController> xController = m_xFrame->getController();
+            if (xController.is())
+            {
+                css::uno::Reference<css::lang::XServiceInfo> xServices(xController->getModel(),
+                                                                        css::uno::UNO_QUERY);
+                m_bIsCalc = xServices.is()
+                            && xServices->supportsService(
+                                u"com.sun.star.sheet.SpreadsheetDocument"_ustr);
+            }
+        }
+        catch (const css::uno::Exception&)
+        {
+        }
+    }
+
+    const double fScale = static_cast<double>(m_nDisplayPct) / 100.0;
+    if (m_bIsCalc)
+    {
+        m_xStylesView->set_item_width(std::lround(88.0 * fScale));
+        m_xStylesView->set_size_request(std::lround(292.0 * fScale), std::lround(62.0 * fScale));
+    }
+    else
+    {
+        m_xStylesView->set_item_width(std::lround(108.0 * fScale));
+        m_xStylesView->set_size_request(std::lround(114.0 * fScale), std::lround(62.0 * fScale));
+    }
+
     StylePreviewCache::RegisterClient();
 
     m_xStylesView->connect_selection_changed(LINK(this, StylesPreviewWindow_Base, Selected));
@@ -533,21 +615,28 @@ void StylesListUpdateTask::Invoke()
     m_rStylesList.UpdateSelection();
 }
 
-Bitmap StylesPreviewWindow_Base::GetCachedPreview(const StylePreviewDescriptor& rStyle)
+Bitmap StylesPreviewWindow_Base::GetCachedPreview(const StylePreviewDescriptor& rStyle,
+                                                   bool bIsCalc, sal_Int32 nDisplayPct)
 {
-    auto aFound = StylePreviewCache::Get().find(rStyle.translatedName);
+    const sal_Int32 nSafePct = std::max<sal_Int32>(100, nDisplayPct);
+    const OUString sCacheKey = (bIsCalc ? u"calc:"_ustr : u"writer:"_ustr)
+                               + OUString::number(nSafePct) + u":"_ustr + rStyle.translatedName;
+    auto aFound = StylePreviewCache::Get().find(sCacheKey);
     if (aFound != StylePreviewCache::Get().end())
-        return StylePreviewCache::Get()[rStyle.translatedName];
+        return aFound->second;
     else
     {
+        const double fScale = static_cast<double>(nSafePct) / 100.0;
         ScopedVclPtrInstance<VirtualDevice> pImg;
-        const Size aSize(100, 30);
+        const Size aSize = bIsCalc
+            ? Size(std::lround(86.0 * fScale), std::lround(28.0 * fScale))
+            : Size(std::lround(106.0 * fScale), std::lround(58.0 * fScale));
         pImg->SetOutputSizePixel(aSize);
 
-        StyleItemController aStyleController(rStyle);
+        StyleItemController aStyleController(rStyle, bIsCalc, nSafePct);
         aStyleController.Paint(*pImg);
         Bitmap aBitmap(pImg->GetBitmap(Point(0, 0), aSize));
-        StylePreviewCache::Get()[rStyle.translatedName] = aBitmap;
+        StylePreviewCache::Get()[sCacheKey] = aBitmap;
 
         return aBitmap;
     }
@@ -682,7 +771,7 @@ void StylesPreviewWindow_Base::UpdateStylesList()
     int nIndex = 0;
     for (const auto& rStyle : m_aAllStyles)
     {
-        Bitmap aPreview = GetCachedPreview(rStyle);
+        Bitmap aPreview = GetCachedPreview(rStyle, m_bIsCalc, m_nDisplayPct);
         m_xStylesView->insert(nIndex, nullptr, &rStyle.translatedName, &aPreview, nullptr);
         m_xStylesView->set_item_tooltip_text(nIndex, rStyle.translatedName);
         m_xStylesView->set_item_accessible_name(nIndex, rStyle.translatedName);
@@ -695,7 +784,10 @@ StylesPreviewWindow_Impl::StylesPreviewWindow_Impl(
     vcl::Window* pParent, const StylePreviewList& rDefaultStyles,
     const css::uno::Reference<css::frame::XFrame>& xFrame)
     : InterimItemWindow(pParent, u"svx/ui/stylespreview.ui"_ustr, u"ApplyStyleBox"_ustr, true)
-    , StylesPreviewWindow_Base(*m_xBuilder, rDefaultStyles, xFrame)
+    , StylesPreviewWindow_Base(
+          *m_xBuilder, rDefaultStyles, xFrame,
+          pParent ? vcl::officestudio::GetWindowEffectiveDisplayScalePct(*pParent)
+                  : vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this))
 {
     SetOptimalSize();
 }

@@ -387,6 +387,50 @@ bool SfxNotebookBar::StateMethod(SystemWindow* pSysWindow,
             const utl::OConfigurationNode aModeNode(lcl_getCurrentImplConfigNode(xFrame, aRoot));
             SfxNotebookBar::ShowMenubar( comphelper::getBOOL( aModeNode.getNodeValue( u"HasMenubar"_ustr ) ) );
 
+            if (eApp == vcl::EnumContext::Application::Writer)
+            {
+                uno::Sequence<OUString> aModeToolbars;
+                aModeNode.getNodeValue(u"Toolbars"_ustr) >>= aModeToolbars;
+                if (!aModeToolbars.hasElements())
+                {
+                    const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
+                    if (xLayoutManager.is())
+                    {
+                        static const OUString aLegacyToolbars[] = {
+                            u"private:resource/toolbar/standardbar"_ustr,
+                            u"private:resource/toolbar/textobjectbar"_ustr
+                        };
+                        for (const OUString& rTb : aLegacyToolbars)
+                        {
+                            if (xLayoutManager->isElementVisible(rTb))
+                                xLayoutManager->hideElement(rTb);
+                        }
+                    }
+                }
+            }
+            else if (eApp == vcl::EnumContext::Application::Calc)
+            {
+                uno::Sequence<OUString> aModeToolbars;
+                aModeNode.getNodeValue(u"Toolbars"_ustr) >>= aModeToolbars;
+                if (!aModeToolbars.hasElements())
+                {
+                    const Reference<frame::XLayoutManager> xLayoutManager = lcl_getLayoutManager(xFrame);
+                    if (xLayoutManager.is())
+                    {
+                        static const OUString aLegacyCalcToolbars[] = {
+                            u"private:resource/toolbar/standardbar"_ustr,
+                            u"private:resource/toolbar/formatobjectbar"_ustr,
+                            u"private:resource/toolbar/textobjectbar"_ustr
+                        };
+                        for (const OUString& rTb : aLegacyCalcToolbars)
+                        {
+                            if (xLayoutManager->isElementVisible(rTb))
+                                xLayoutManager->hideElement(rTb);
+                        }
+                    }
+                }
+            }
+
             SfxViewFrame* pView = SfxViewFrame::Current();
 
             if(pView)

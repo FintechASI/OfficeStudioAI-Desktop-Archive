@@ -22,6 +22,8 @@
 #include <vcl/help.hxx>
 #include <vcl/ptrstyle.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <svtools/colorcfg.hxx>
 #include <osl/diagnose.h>
 
@@ -87,6 +89,15 @@ ScHeaderControl::ScHeaderControl( vcl::Window* pParent, SelectionEngine* pSelect
     EnableRTL( false );
 
     aNormFont = GetFont();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+                              && !ThemeColors::IsThemeEnabled();
+    sal_Int32 nDisplayPct = 100;
+    if (bFluentLight)
+    {
+        nDisplayPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this);
+        aNormFont.SetFamilyName(u"Segoe UI"_ustr);
+        aNormFont.SetFontHeight(vcl::officestudio::ComputeScaledMetric(12.0, nDisplayPct));
+    }
     aNormFont.SetTransparent( true );       //! hard-set WEIGHT_NORMAL ???
 
     mnDefaultFontHeight = aNormFont.GetFontHeight();
@@ -104,6 +115,13 @@ ScHeaderControl::ScHeaderControl( vcl::Window* pParent, SelectionEngine* pSelect
         GetTextHeight() ) );
     aSize.AdjustWidth(8); // place for highlight border
     aSize.AdjustHeight(3 );
+    if (bFluentLight)
+    {
+        aSize.setHeight(std::max<tools::Long>(
+            aSize.Height(), vcl::officestudio::ComputeScaledMetric(24.0, nDisplayPct)));
+        aSize.setWidth(std::max<tools::Long>(
+            aSize.Width(), vcl::officestudio::ComputeScaledMetric(32.0, nDisplayPct)));
+    }
     SetSizePixel( aSize );
 
     nWidth = nSmallWidth = aSize.Width();
@@ -242,10 +260,13 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
     bool bHighContrast = rStyleSettings.GetHighContrastMode();
     bool bDark = rStyleSettings.GetFaceColor().IsDark();
+    const bool bFluentLight = !bHighContrast && !bDark
+                              && vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
     // Use the same distinction for bDark as in Window::DrawSelectionBackground
 
-    Color aTextColor = rStyleSettings.GetButtonTextColor();
-    Color aSelTextColor = rStyleSettings.GetHighlightTextColor();
+    Color aTextColor = bFluentLight ? vcl::officestudio::Slate700 : rStyleSettings.GetButtonTextColor();
+    Color aSelTextColor = bFluentLight ? vcl::officestudio::CalcAccentDark : rStyleSettings.GetHighlightTextColor();
     Color aAFilterTextColor = rStyleSettings.GetButtonTextColor();
     aAFilterTextColor.Merge(COL_LIGHTBLUE, bDark ? 150 : 10); // color of filtered row numbers
     aNormFont.SetColor( aTextColor );
@@ -261,8 +282,11 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
         rRenderContext.SetTextColor((bBoldSet && !bHighContrast) ? aSelTextColor : aTextColor);
 
     ScModule* mod = ScModule::get();
-    Color aSelLineColor = mod->GetColorConfig().GetColorValue(svtools::CALCCELLFOCUS).nColor;
-    aSelLineColor.Merge( COL_BLACK, 0xe0 );        // darken just a little bit
+    Color aSelLineColor = bFluentLight
+                              ? vcl::officestudio::CalcAccentBorder
+                              : mod->GetColorConfig().GetColorValue(svtools::CALCCELLFOCUS).nColor;
+    if (!bFluentLight)
+        aSelLineColor.Merge( COL_BLACK, 0xe0 );        // darken just a little bit
 
     bool bLayoutRTL = IsLayoutRTL();
     tools::Long nLayoutSign = bLayoutRTL ? -1 : 1;
@@ -337,7 +361,7 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
 
     if ( nLineEnd * nLayoutSign >= nInitScrPos * nLayoutSign )
     {
-        Color aFaceColor(rStyleSettings.GetFaceColor());
+        Color aFaceColor(bFluentLight ? vcl::officestudio::CalcHeaderBg : rStyleSettings.GetFaceColor());
         if (pTabView)
         {
             ScViewData& rViewData = pTabView->GetViewData();
@@ -352,10 +376,13 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
                 }
             }
         }
-        if (bDark)
-            aFaceColor.IncreaseLuminance(20);
-        else
-            aFaceColor.DecreaseLuminance(20);
+        if (!bFluentLight)
+        {
+            if (bDark)
+                aFaceColor.IncreaseLuminance(20);
+            else
+                aFaceColor.DecreaseLuminance(20);
+        }
         rRenderContext.SetFillColor(aFaceColor);
         if ( bVertical )
             aFillRect = tools::Rectangle( 0, nInitScrPos, nBarSize-1, nLineEnd );
@@ -366,7 +393,9 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
 
     if ( nLineEnd * nLayoutSign < nPEnd * nLayoutSign )
     {
-        Color aAppBackgroundColor = mod->GetColorConfig().GetColorValue(svtools::APPBACKGROUND).nColor;
+        Color aAppBackgroundColor = bFluentLight
+                                        ? vcl::officestudio::CanvasBg
+                                        : mod->GetColorConfig().GetColorValue(svtools::APPBACKGROUND).nColor;
         rRenderContext.SetFillColor(aAppBackgroundColor);
         if ( bVertical )
             aFillRect = tools::Rectangle( 0, nLineEnd+nLayoutSign, nBarSize-1, nPEnd );
@@ -394,6 +423,12 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
                     rRenderContext.DrawRect( aFillRect );
                 }
             }
+            else if (bFluentLight)
+            {
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(vcl::officestudio::CalcHeaderSelBg);
+                rRenderContext.DrawRect(aFillRect);
+            }
             else
             {
                 // background for selection
@@ -410,7 +445,7 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
             }
         }
 
-        rRenderContext.SetLineColor( rStyleSettings.GetShadowColor() );
+        rRenderContext.SetLineColor( bFluentLight ? vcl::officestudio::CalcHeaderBorder : rStyleSettings.GetShadowColor() );
         if (bVertical)
         {
             rRenderContext.DrawLine( Point( 0, nPStart ), Point( 0, nLineEnd ) ); //left
@@ -489,7 +524,7 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
                 rRenderContext.SetLineColor( bHighContrast ? rStyleSettings.GetShadowColor() : aSelLineColor );
                 break;
             case HeaderPaintPass::Bottom:
-                rRenderContext.SetLineColor( rStyleSettings.GetShadowColor() );
+                rRenderContext.SetLineColor( bFluentLight ? vcl::officestudio::CalcHeaderBorder : rStyleSettings.GetShadowColor() );
                 break;
             case HeaderPaintPass::Text:
                 // DrawSelectionBackground is used only for high contrast on light background
@@ -652,6 +687,28 @@ void ScHeaderControl::Paint( vcl::RenderContext& rRenderContext, const tools::Re
         while ( nScrPos * nLayoutSign <= nPEnd * nLayoutSign );
 
         aGrid.Flush();
+    }
+
+    if (bFluentLight && nLineEnd * nLayoutSign >= nPStart * nLayoutSign
+        && nTransEnd * nLayoutSign >= nTransStart * nLayoutSign && nBarSize >= 3)
+    {
+        const tools::Long nAccentThick = std::min<tools::Long>(2, nBarSize - 1);
+        tools::Rectangle aAccentRect;
+        if (bVertical)
+        {
+            if (bLayoutRTL)
+                aAccentRect = tools::Rectangle(0, nTransStart, nAccentThick - 1, nTransEnd);
+            else
+                aAccentRect = tools::Rectangle(nBarSize - nAccentThick, nTransStart, nBarSize - 1, nTransEnd);
+        }
+        else
+        {
+            aAccentRect = tools::Rectangle(nTransStart, nBarSize - nAccentThick, nTransEnd, nBarSize - 1);
+        }
+        aAccentRect.Normalize();
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::CalcAccent);
+        rRenderContext.DrawRect(aAccentRect);
     }
 }
 

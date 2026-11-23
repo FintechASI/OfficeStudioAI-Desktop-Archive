@@ -10,6 +10,7 @@
 #pragma once
 
 #include <utility>
+#include <tools/gen.hxx>
 #include <vcl/weld/Builder.hxx>
 #include <vcl/weld/Entry.hxx>
 #include <vcl/weld/Popover.hxx>
@@ -88,19 +89,23 @@ private:
     std::unique_ptr<weld::Entry> mpEntry;
     std::unique_ptr<weld::TreeView> mpCommandTreeView;
 
+    css::uno::Reference<css::frame::XFrame> mxFrame;
     std::vector<CurrentEntry> maCommandList;
     std::unique_ptr<MenuContentHandler> mpMenuContentHandler;
+    bool mbIncludeSheetFind;
 
     DECL_LINK(QueryTooltip, const weld::TreeIter&, OUString);
     DECL_LINK(RowActivated, const weld::TreeIter&, bool);
     DECL_LINK(ModifyHdl, weld::Entry&, void);
     DECL_LINK(TreeViewKeyPress, const KeyEvent&, bool);
 
+    void populateDefaultActions();
     void DispatchSelectedCommand();
     void dispatchCommandAndClose(OUString const& rCommand);
 
 public:
-    CommandListBox(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame);
+    CommandListBox(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame,
+                   const tools::Rectangle* pAnchorRect = nullptr, bool bIncludeSheetFind = false);
     void connect_closed(const Link<weld::Popover&, void>& rLink)
     {
         mxPopover->connect_closed(rLink);
@@ -114,6 +119,9 @@ private:
 
 public:
     void showPopup(weld::Window* pParent, css::uno::Reference<css::frame::XFrame> const& xFrame);
+    void showPopupAtRect(weld::Window* pParent,
+                         css::uno::Reference<css::frame::XFrame> const& xFrame,
+                         const tools::Rectangle& rAnchorRect, bool bIncludeSheetFind);
     DECL_LINK(PopupModeEnd, weld::Popover&, void);
 };
 

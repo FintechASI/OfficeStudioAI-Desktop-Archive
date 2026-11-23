@@ -291,9 +291,9 @@ IMPL_LINK_NOARG(SidebarToolBox, ChangedIconHandler, LinkParamNone*, void)
 
 IMPL_LINK(SidebarToolBox, ChangedDataHandler, const DataChangedEvent*, pDataChangedEvent, void)
 {
-    if ((( pDataChangedEvent->GetType() == DataChangedEventType::SETTINGS )   ||
-        (  pDataChangedEvent->GetType() == DataChangedEventType::DISPLAY  ))  &&
-        ( pDataChangedEvent->GetFlags() & AllSettingsFlags::STYLE        ))
+    if ((pDataChangedEvent->GetType() == DataChangedEventType::DISPLAY)
+        || ((pDataChangedEvent->GetType() == DataChangedEventType::SETTINGS)
+            && (pDataChangedEvent->GetFlags() & AllSettingsFlags::STYLE)))
     {
         ChangedIconHandler(nullptr);
     }

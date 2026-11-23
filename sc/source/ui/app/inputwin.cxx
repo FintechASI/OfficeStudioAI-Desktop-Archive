@@ -42,9 +42,16 @@
 #include <vcl/cursor.hxx>
 #include <vcl/help.hxx>
 #include <vcl/image.hxx>
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <basegfx/range/b2drectangle.hxx>
 #include <vcl/ptrstyle.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <svl/stritem.hxx>
+#include <cmath>
 #include <vcl/svapp.hxx>
 #include <vcl/weld/Menu.hxx>
 #include <vcl/weld/Window.hxx>
@@ -164,7 +171,9 @@ static ScTabViewShell* lcl_chooseRuntimeImpl( const SfxBindings* pBind )
 
 ScInputWindow::ScInputWindow( vcl::Window* pParent, const SfxBindings* pBind ) :
         // With WB_CLIPCHILDREN otherwise we get flickering
-        ToolBox         ( pParent, WinBits(WB_CLIPCHILDREN | WB_BORDER | WB_NOSHADOW) ),
+        ToolBox         ( pParent, (vcl::officestudio::IsLightTheme(Application::GetSettings().GetStyleSettings()) && !ThemeColors::IsThemeEnabled())
+                                    ? WinBits(WB_CLIPCHILDREN | WB_NOSHADOW)
+                                    : WinBits(WB_CLIPCHILDREN | WB_BORDER | WB_NOSHADOW) ),
         aWndPos(VclPtr<ScPosWnd>::Create(this)),
         mxTextWindow    ( VclPtr<ScInputBarGroup>::Create( this, lcl_chooseRuntimeImpl(pBind)) ),
         pInputHdl       ( nullptr ),
@@ -275,6 +284,14 @@ ScInputWindow::ScInputWindow( vcl::Window* pParent, const SfxBindings* pBind ) :
         // Don't stop editing in LOK a remote user might be editing.
         const bool bStopEditing = !comphelper::LibreOfficeKit::isActive();
         pViewSh->UpdateInputHandler(true, bStopEditing); // Absolutely necessary update
+    }
+
+    if (vcl::officestudio::IsLightTheme(Application::GetSettings().GetStyleSettings())
+        && !ThemeColors::IsThemeEnabled())
+    {
+        SetPaintTransparent(false);
+        SetControlBackground(vcl::officestudio::RibbonHeaderBg);
+        SetBackground(vcl::officestudio::RibbonHeaderBg);
     }
 
     SetToolbarLayoutMode( ToolBoxLayoutMode::Locked );
@@ -481,10 +498,17 @@ void ScInputWindow::Resize()
     Size aStartSize = GetSizePixel();
     Size aSize = aStartSize;
 
+    const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    const double fScale = bFluentLight
+                              ? static_cast<double>(vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this)) / 100.0
+                              : std::max(1.0, static_cast<double>(GetDPIScaleFactor()));
+
     auto nLines = mxTextWindow->GetNumLines();
     //(-10) to allow margin between sidebar and formulabar
-    tools::Long margin = (comphelper::LibreOfficeKit::isActive()) ? 10 : 0;
-    Size aTextWindowSize(aSize.Width() - mxTextWindow->GetPosPixel().X() - LEFT_OFFSET - margin,
+    tools::Long margin = (comphelper::LibreOfficeKit::isActive()) ? 10 : (bFluentLight ? std::lround(10.0 * fScale) : 0);
+    Size aTextWindowSize(std::max<tools::Long>(40, aSize.Width() - mxTextWindow->GetPosPixel().X() - LEFT_OFFSET - margin),
                          mxTextWindow->GetPixelHeightForLines(nLines));
     mxTextWindow->SetSizePixel(aTextWindowSize);
 
@@ -504,12 +528,96 @@ void ScInputWindow::Resize()
     }
 
     // add empty space of RESIZE_HOTSPOT_HEIGHT so resize is possible when hovering there
-    aSize.setHeight(CalcWindowSizePixel().Height() + RESIZE_HOTSPOT_HEIGHT + nTopOffset);
+    tools::Long nTargetHeight = CalcWindowSizePixel().Height() + RESIZE_HOTSPOT_HEIGHT + nTopOffset;
+    if (bFluentLight && nLines == 1)
+        nTargetHeight = std::max<tools::Long>(nTargetHeight, std::lround(30.0 * fScale));
+    aSize.setHeight(nTargetHeight);
 
     if (aStartSize != aSize)
         SetSizePixel(aSize);
 
     Invalidate();
+}
+
+void ScInputWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
+{
+    ToolBox::Paint(rRenderContext, rRect);
+
+    const StyleSettings& rStyle = rRenderContext.GetSettings().GetStyleSettings();
+    if (!vcl::officestudio::IsLightTheme(rStyle) || ThemeColors::IsThemeEnabled())
+        return;
+
+    const Size aOutSz = GetOutputSizePixel();
+    if (aOutSz.IsEmpty())
+        return;
+
+    const double fScale = static_cast<double>(vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this)) / 100.0;
+    const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+    auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+    rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+
+    rRenderContext.SetLineColor(vcl::officestudio::Divider);
+    rRenderContext.DrawLine(Point(0, 0), Point(aOutSz.Width() - 1, 0));
+    rRenderContext.SetLineColor(vcl::officestudio::CalcHeaderBorder);
+    rRenderContext.DrawLine(Point(0, aOutSz.Height() - 1), Point(aOutSz.Width() - 1, aOutSz.Height() - 1));
+
+    auto drawRoundBorder = [&](const tools::Rectangle& rBox, Color aBorderColor, double fStroke) {
+        const double w = static_cast<double>(rBox.GetWidth());
+        const double h = static_cast<double>(rBox.GetHeight());
+        if (w < 4.0 || h < 4.0)
+            return;
+        const double rad = 2.0 * fScale;
+        const double rx = std::clamp((2.0 * rad) / w, 0.0, 1.0);
+        const double ry = std::clamp((2.0 * rad) / h, 0.0, 1.0);
+        const basegfx::B2DPolygon aPoly = basegfx::utils::createPolygonFromRect(
+            basegfx::B2DRectangle(rBox.Left(), rBox.Top(), rBox.Right(), rBox.Bottom()), rx, ry);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(aBorderColor);
+        rRenderContext.DrawPolyLine(aPoly, fStroke, basegfx::B2DLineJoin::Round);
+    };
+
+    tools::Rectangle aFuncCluster;
+    static constexpr ToolBoxItemId aFuncIds[] = {
+        SID_INPUT_FUNCTION, SID_INPUT_SUM, SID_INPUT_EQUAL, SID_INPUT_CANCEL, SID_INPUT_OK
+    };
+    for (ToolBoxItemId nId : aFuncIds)
+    {
+        if (IsItemVisible(nId))
+        {
+            const tools::Rectangle aItemRc = GetItemRect(nId);
+            if (!aItemRc.IsEmpty())
+                aFuncCluster.Union(aItemRc);
+        }
+    }
+    if (!aFuncCluster.IsEmpty())
+    {
+        tools::Rectangle aCapRect(
+            std::max<tools::Long>(1, aFuncCluster.Left() - static_cast<tools::Long>(std::lround(1.0 * fScale))),
+            std::max<tools::Long>(2, aFuncCluster.Top() - static_cast<tools::Long>(std::lround(1.0 * fScale))),
+            std::min<tools::Long>(aOutSz.Width() - 2, aFuncCluster.Right() + static_cast<tools::Long>(std::lround(1.0 * fScale))),
+            std::min<tools::Long>(aOutSz.Height() - 3, aFuncCluster.Bottom() + static_cast<tools::Long>(std::lround(1.0 * fScale))));
+        drawRoundBorder(aCapRect, vcl::officestudio::CalcSearchBorder, 1.0 * fScale);
+    }
+
+    if (mxTextWindow && mxTextWindow->IsVisible())
+    {
+        const Point aPos = mxTextWindow->GetPosPixel();
+        const Size aSz = mxTextWindow->GetSizePixel();
+        if (!aSz.IsEmpty())
+        {
+            tools::Rectangle aCardRect(
+                std::max<tools::Long>(0, aPos.X() - 1),
+                std::max<tools::Long>(1, aPos.Y() - 1),
+                std::min<tools::Long>(aOutSz.Width() - 1, aPos.X() + aSz.Width()),
+                std::min<tools::Long>(aOutSz.Height() - 2, aPos.Y() + aSz.Height()));
+            const bool bActive = bIsOkCancelMode || mxTextWindow->IsInputActive();
+            drawRoundBorder(aCardRect,
+                            bActive ? vcl::officestudio::CalcAccent : vcl::officestudio::CalcSearchBorder,
+                            (bActive ? 1.5 : 1.0) * fScale);
+        }
+    }
+
+    rRenderContext.SetAntialiasing(nOldAA);
 }
 
 void ScInputWindow::NotifyLOKClient()
@@ -584,6 +692,7 @@ void ScInputWindow::SetOkCancelMode()
     EnableItem  ( SID_INPUT_OK,     true );
 
     bIsOkCancelMode = true;
+    Invalidate();
 }
 
 void ScInputWindow::SetSumAssignMode()
@@ -593,7 +702,10 @@ void ScInputWindow::SetSumAssignMode()
     EnableButtons( pViewFrm && !pViewFrm->GetChildWindow( SID_OPENDLG_FUNCTION ) );
 
     if (!bIsOkCancelMode)
+    {
+        Invalidate();
         return;
+    }
 
     EnableItem  ( SID_INPUT_CANCEL, false );
     EnableItem  ( SID_INPUT_OK,     false );
@@ -608,6 +720,7 @@ void ScInputWindow::SetSumAssignMode()
     bIsOkCancelMode = false;
 
     SetFormulaMode(false); // No editing -> no formula
+    Invalidate();
 }
 
 void ScInputWindow::SetFormulaMode( bool bSet )
@@ -884,10 +997,12 @@ ScInputBarGroup::ScInputBarGroup(vcl::Window* pParent, ScTabViewShell* pViewSh)
 void ScInputBarGroup::SetBackgrounds()
 {
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
-    SetBackground(rStyleSettings.GetFaceColor());
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    SetBackground(bFluentLight ? vcl::officestudio::RibbonHeaderBg : rStyleSettings.GetFaceColor());
     // match to bg used in ScTextWnd::SetDrawingArea to the margin area is drawn with the
     // same desired bg
-    mxBackground->set_background(rStyleSettings.GetFieldColor());
+    mxBackground->set_background(bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor());
 }
 
 void ScInputBarGroup::DataChanged(const DataChangedEvent& rDCEvt)
@@ -1301,7 +1416,9 @@ IMPL_LINK_NOARG(ScTextWndGroup, Impl_ScrollHdl, weld::ScrolledWindow&, void)
 void ScTextWnd::Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect )
 {
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
-    Color aBgColor = rStyleSettings.GetFieldColor();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    Color aBgColor = bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor();
     rRenderContext.SetBackground(aBgColor);
 
     // tdf#137713 we rely on GetEditView creating it if it doesn't already exist so
@@ -1582,7 +1699,9 @@ void ScTextWnd::InitEditEngine()
     m_xEditView->SetInsertMode(bIsInsertMode);
 
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
-    Color aBgColor = rStyleSettings.GetFieldColor();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    Color aBgColor = bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor();
     m_xEditView->SetBackgroundColor(aBgColor);
 
     if (pAcc)
@@ -2133,7 +2252,9 @@ void ScTextWnd::MakeDialogEditView()
     m_xEditView->setEditViewCallbacks(this);
 
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
-    Color aBgColor = rStyleSettings.GetFieldColor();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    Color aBgColor = bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor();
     m_xEditView->SetBackgroundColor(aBgColor);
 
     if (pAcc)
@@ -2161,9 +2282,11 @@ void ScTextWnd::ImplInitSettings()
     bIsRTL = AllSettings::GetLayoutRTL();
 
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
 
-    Color aBgColor= rStyleSettings.GetFieldColor();
-    Color aTxtColor= rStyleSettings.GetWindowTextColor();
+    Color aBgColor = bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor();
+    Color aTxtColor = bFluentLight ? vcl::officestudio::TextPrimary : rStyleSettings.GetWindowTextColor();
 
     aTextFont.SetFillColor   ( aBgColor );
     aTextFont.SetColor       (aTxtColor);
@@ -2193,17 +2316,20 @@ void ScTextWnd::SetDrawingArea(weld::DrawingArea* pDrawingArea)
     pDrawingArea->set_margin_bottom(gnBorderHeight - 1);
 
     // always use application font, so a font with cjk chars can be installed
-    vcl::Font aAppFont = Application::GetSettings().GetStyleSettings().GetAppFont();
+    const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    vcl::Font aAppFont = rStyleSettings.GetAppFont();
+    if (bFluentLight)
+        aAppFont.SetFamilyName(u"Segoe UI"_ustr);
     weld::SetPointFont(rDevice, aAppFont);
 
     aTextFont = rDevice.GetFont();
     Size aFontSize = aTextFont.GetFontSize();
     aTextFont.SetFontSize(rDevice.PixelToLogic(aFontSize, MapMode(MapUnit::MapTwip)));
 
-    const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
-
-    Color aBgColor = rStyleSettings.GetFieldColor();
-    Color aTxtColor = rStyleSettings.GetWindowTextColor();
+    Color aBgColor = bFluentLight ? COL_WHITE : rStyleSettings.GetFieldColor();
+    Color aTxtColor = bFluentLight ? vcl::officestudio::TextPrimary : rStyleSettings.GetWindowTextColor();
 
     aTextFont.SetTransparent(true);
     aTextFont.SetFillColor(aBgColor);
@@ -2268,8 +2394,21 @@ ScPosWnd::ScPosWnd(vcl::Window* pParent)
     // formatting toolbar is placed above formulabar when using multiple toolbars typically
 
     m_xWidget->set_entry_width_chars(1);
+    const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    if (bFluentLight)
+    {
+        SetPaintTransparent(false);
+        SetBackground(vcl::officestudio::RibbonHeaderBg);
+        if (m_xContainer)
+            m_xContainer->set_background(vcl::officestudio::RibbonHeaderBg);
+    }
     Size aSize(LogicToPixel(Size(POSITION_COMBOBOX_WIDTH * 4, 0), MapMode(MapUnit::MapAppFont)));
-    m_xWidget->set_size_request(aSize.Width(), -1);
+    const tools::Long nTargetW = bFluentLight
+                                     ? static_cast<tools::Long>(std::lround(116.0 * std::max(1.0, static_cast<double>(GetDPIScaleFactor()))))
+                                     : aSize.Width();
+    m_xWidget->set_size_request(nTargetW, -1);
     SetSizePixel(m_xContainer->get_preferred_size());
 
     FillRangeNames(true);

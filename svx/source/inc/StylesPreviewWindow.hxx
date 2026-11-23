@@ -69,9 +69,12 @@ class StyleItemController
 
     SfxStyleFamily m_eStyleFamily;
     StylePreviewDescriptor m_aStyleName;
+    bool m_bIsCalc;
+    sal_Int32 m_nDisplayPct;
 
 public:
-    StyleItemController(StylePreviewDescriptor aStyleName);
+    StyleItemController(StylePreviewDescriptor aStyleName, bool bIsCalc = false,
+                        sal_Int32 nDisplayPct = 100);
 
     void Paint(vcl::RenderContext& rRenderContext);
 
@@ -116,6 +119,8 @@ protected:
     StylePreviewList m_aAllStyles;
 
     OUString m_sSelectedStyle;
+    bool m_bIsCalc = false;
+    sal_Int32 m_nDisplayPct = 100;
 
     DECL_LINK(Selected, weld::ItemView&, void);
     DECL_LINK(DoubleClick, const weld::TreeIter&, bool);
@@ -123,12 +128,14 @@ protected:
 
 public:
     StylesPreviewWindow_Base(weld::Builder& xBuilder, const StylePreviewList& rDefaultStyles,
-                             const css::uno::Reference<css::frame::XFrame>& xFrame);
+                             const css::uno::Reference<css::frame::XFrame>& xFrame,
+                             sal_Int32 nDisplayPct = 100);
     ~StylesPreviewWindow_Base();
 
     void Select(const OUString& rStyleName);
     void RequestStylesListUpdate();
-    static Bitmap GetCachedPreview(const StylePreviewDescriptor& rStyle);
+    static Bitmap GetCachedPreview(const StylePreviewDescriptor& rStyle, bool bIsCalc = false,
+                                   sal_Int32 nDisplayPct = 100);
 
 private:
     void UpdateStylesList();

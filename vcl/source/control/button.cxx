@@ -34,8 +34,18 @@
 #include <vcl/salnativewidgets.hxx>
 #include <vcl/toolkit/edit.hxx>
 #include <vcl/layout.hxx>
+#include <vcl/mnemonic.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
 #include <vcl/stdtext.hxx>
 #include <vcl/uitest/uiobject.hxx>
+
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <basegfx/range/b2drectangle.hxx>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 #include <accessibility/vclxaccessiblebutton.hxx>
 #include <accessibility/vclxaccessiblecheckbox.hxx>
@@ -901,9 +911,193 @@ void PushButton::ImplDrawPushButtonContent(OutputDevice *pDev, SystemTextColorFl
     }
 }
 
+namespace
+{
+bool lcl_IsEnhancedRibbonPushButton(const PushButton& rBtn, bool bIsSymbol)
+{
+    if (!vcl::officestudio::IsEnhancedRibbonWindow(rBtn))
+        return false;
+    // Exclude internal sub-controls (ListBox/ComboBox dropdown ImplBtn, TabControl hamburger,
+    // PriorityMergedHBox overflow button, SpinField buttons) and symbol buttons.
+    if (bIsSymbol || rBtn.get_id().isEmpty())
+        return false;
+    const vcl::Window* pPar = rBtn.GetParent();
+    if (!pPar)
+        return false;
+    const WindowType eParType = pPar->GetType();
+    if (eParType == WindowType::LISTBOX || eParType == WindowType::COMBOBOX
+        || eParType == WindowType::TABCONTROL || eParType == WindowType::SPINFIELD)
+        return false;
+    return true;
+}
+}
+
 void PushButton::ImplDrawPushButton(vcl::RenderContext& rRenderContext)
 {
     HideFocus();
+
+    if (lcl_IsEnhancedRibbonPushButton(*this, IsSymbol()))
+    {
+        const Size aOutSz(GetOutputSizePixel());
+        if (aOutSz.IsEmpty())
+            return;
+
+        const bool bCalc = vcl::officestudio::IsCalcRibbonWindow(*this);
+        const sal_Int32 nDispPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this);
+        const double fScale = nDispPct / 100.0;
+        const bool bRollOver = IsMouseOver() && tools::Rectangle(Point(), aOutSz).Contains(GetPointerPosPixel());
+        const bool bPressed = mbPressed || IsChecked() || (GetButtonState() & DrawButtonFlags::Pressed) != DrawButtonFlags::NONE;
+
+        if (bRollOver || bPressed)
+        {
+            const double x1 = 1.0 * fScale;
+            const double y1 = 1.0 * fScale;
+            const double x2 = static_cast<double>(aOutSz.Width()) - 1.0 * fScale;
+            const double y2 = static_cast<double>(aOutSz.Height()) - 1.0 * fScale;
+            if (x2 > x1 + 2.0 && y2 > y1 + 2.0)
+            {
+                Color aFill = bCalc ? vcl::officestudio::CalcBtnHoverBg : vcl::officestudio::HoverBg;
+                Color aBorder = bCalc ? vcl::officestudio::CalcBtnHoverBorder : vcl::officestudio::Divider;
+                if (bPressed)
+                {
+                    aFill = bCalc ? vcl::officestudio::CalcBtnPressedBg : vcl::officestudio::PressedBg;
+                    aBorder = vcl::officestudio::PressedBorder;
+                }
+                const double rad = 3.0 * fScale;
+                const double rx = std::clamp((2.0 * rad) / (x2 - x1), 0.0, 1.0);
+                const double ry = std::clamp((2.0 * rad) / (y2 - y1), 0.0, 1.0);
+                const basegfx::B2DPolygon aPoly = basegfx::utils::createPolygonFromRect(
+                    basegfx::B2DRectangle(x1, y1, x2, y2), rx, ry);
+                const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+                auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+                rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(aFill);
+                rRenderContext.DrawPolygon(aPoly);
+                rRenderContext.SetFillColor();
+                rRenderContext.SetLineColor(aBorder);
+                rRenderContext.DrawPolyLine(aPoly, 1.0 * fScale, basegfx::B2DLineJoin::Round);
+                rRenderContext.SetAntialiasing(nOldAA);
+            }
+        }
+
+        const bool bEnabled = IsEnabled();
+        const bool bMenuDrop = (mnDDStyle == PushButtonDropdownStyle::MenuButton);
+        const bool bHasImage = Button::HasImage();
+        const bool bTopHero = bHasImage && (GetImageAlign() == ImageAlign::Top);
+        const Size aImgSz = bHasImage ? GetModeImage().GetSizePixel() : Size();
+        OUString sClean = get_id().startsWith("btnHomeChangeCase") ? OUString() : removeMnemonicFromString(PushButton::GetText());
+        const bool bHasText = !sClean.isEmpty();
+
+        const tools::Long nLineH = rRenderContext.GetTextHeight();
+        const tools::Long nContentW = aOutSz.Width();
+        const tools::Long nContentH = aOutSz.Height();
+
+        auto drawChevron = [&](const tools::Rectangle& rChevRc) {
+            const AntialiasingFlags nOldAA = rRenderContext.GetAntialiasing();
+            auto popC = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+            rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(bEnabled ? vcl::officestudio::TextSecondary : vcl::officestudio::Slate400);
+            const double cx = (rChevRc.Left() + rChevRc.Right()) * 0.5;
+            const double cy = (rChevRc.Top() + rChevRc.Bottom()) * 0.5 + 0.5 * fScale;
+            const double hw = std::clamp(rChevRc.GetWidth() * 0.28, 2.4 * fScale, 3.5 * fScale);
+            const double hh = std::max(1.4 * fScale, hw * 0.5);
+            basegfx::B2DPolygon aChevron;
+            aChevron.append(basegfx::B2DPoint(cx - hw, cy - hh));
+            aChevron.append(basegfx::B2DPoint(cx, cy + hh));
+            aChevron.append(basegfx::B2DPoint(cx + hw, cy - hh));
+            rRenderContext.DrawPolyLine(aChevron, 1.25 * fScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+            rRenderContext.SetAntialiasing(nOldAA);
+        };
+
+        auto popTxt = rRenderContext.ScopedPush(vcl::PushFlags::TEXTCOLOR);
+        rRenderContext.SetTextColor(bEnabled ? vcl::officestudio::TextPrimary : vcl::officestudio::Slate400);
+
+        if (bTopHero)
+        {
+            OUString sL1 = sClean, sL2;
+            const tools::Long nMaxLineW = vcl::officestudio::ComputeScaledMetric(68.0, nDispPct);
+            if (bHasText && rRenderContext.GetTextWidth(sClean) > nMaxLineW)
+            {
+                sal_Int32 nBestSplit = -1;
+                tools::Long nBestMax = std::numeric_limits<tools::Long>::max();
+                for (sal_Int32 nSp = sClean.indexOf(' '); nSp > 0; nSp = sClean.indexOf(' ', nSp + 1))
+                {
+                    tools::Long nM = std::max(rRenderContext.GetTextWidth(sClean.copy(0, nSp)),
+                                              rRenderContext.GetTextWidth(sClean.copy(nSp + 1)));
+                    if (nM < nBestMax)
+                    {
+                        nBestMax = nM;
+                        nBestSplit = nSp;
+                    }
+                }
+                if (nBestSplit > 0)
+                {
+                    sL1 = sClean.copy(0, nBestSplit);
+                    sL2 = sClean.copy(nBestSplit + 1);
+                }
+            }
+            const tools::Long nGap = vcl::officestudio::ComputeScaledMetric(2.0, nDispPct);
+            const tools::Long nBotChevH = (bMenuDrop && sL2.isEmpty()) ? vcl::officestudio::ComputeScaledMetric(9.0, nDispPct) : 0;
+            const tools::Long nTxtBlkH = (bHasText ? (sL2.isEmpty() ? nLineH : nLineH * 2) : 0) + nBotChevH;
+            const tools::Long nTotalH = (bHasImage ? aImgSz.Height() : 0) + (bHasText ? nGap + nTxtBlkH : 0);
+            const tools::Long nImgY = std::max<tools::Long>(vcl::officestudio::ComputeScaledMetric(4.0, nDispPct), (nContentH - nTotalH) / 2);
+            if (bHasImage)
+            {
+                const tools::Long nImgX = (nContentW - aImgSz.Width()) / 2;
+                rRenderContext.DrawImage(Point(nImgX, nImgY), GetModeImage(), bEnabled ? DrawImageFlags::NONE : DrawImageFlags::Disable);
+            }
+            if (bHasText)
+            {
+                const tools::Long nTxtY = nImgY + (bHasImage ? aImgSz.Height() + nGap : 0);
+                const tools::Long nL1W = rRenderContext.GetTextWidth(sL1);
+                rRenderContext.DrawText(Point((nContentW - nL1W) / 2, nTxtY), sL1);
+                if (!sL2.isEmpty())
+                {
+                    const tools::Long nL2W = rRenderContext.GetTextWidth(sL2);
+                    const tools::Long nChW = bMenuDrop ? vcl::officestudio::ComputeScaledMetric(10.0, nDispPct) : 0;
+                    const tools::Long nL2X = (nContentW - (nL2W + nChW)) / 2;
+                    const tools::Long nL2Y = nTxtY + nLineH - 1;
+                    rRenderContext.DrawText(Point(nL2X, nL2Y), sL2);
+                    if (bMenuDrop)
+                        drawChevron(tools::Rectangle(Point(nL2X + nL2W + 1, nL2Y + 1), Size(nChW, nLineH)));
+                }
+                else if (bMenuDrop)
+                {
+                    const tools::Long nChW = vcl::officestudio::ComputeScaledMetric(12.0, nDispPct);
+                    const tools::Long nChH = vcl::officestudio::ComputeScaledMetric(9.0, nDispPct);
+                    drawChevron(tools::Rectangle(Point((nContentW - nChW) / 2, nTxtY + nLineH - 1), Size(nChW, nChH)));
+                }
+            }
+        }
+        else
+        {
+            const tools::Long nPadL = vcl::officestudio::ComputeScaledMetric(5.0, nDispPct);
+            const tools::Long nGap = vcl::officestudio::ComputeScaledMetric(5.0, nDispPct);
+            tools::Long nCurX = nPadL;
+            if (bHasImage)
+            {
+                rRenderContext.DrawImage(Point(nCurX, (nContentH - aImgSz.Height()) / 2), GetModeImage(),
+                                         bEnabled ? DrawImageFlags::NONE : DrawImageFlags::Disable);
+                nCurX += aImgSz.Width();
+            }
+            if (bHasText)
+            {
+                if (bHasImage)
+                    nCurX += nGap;
+                const tools::Long nTxtW = rRenderContext.GetTextWidth(sClean);
+                rRenderContext.DrawText(Point(nCurX, (nContentH - nLineH) / 2), sClean);
+                nCurX += nTxtW;
+            }
+            if (bMenuDrop)
+            {
+                const tools::Long nChW = vcl::officestudio::ComputeScaledMetric(10.0, nDispPct);
+                drawChevron(tools::Rectangle(Point(std::min(nCurX + 2, nContentW - nChW - 2), 0), Size(nChW, nContentH)));
+            }
+        }
+        return;
+    }
 
     DrawButtonFlags nButtonStyle = GetButtonState();
     Size aOutSz(GetOutputSizePixel());
@@ -1612,6 +1806,67 @@ void PushButton::EndSelection()
 
 Size PushButton::CalcMinimumSize() const
 {
+    if (lcl_IsEnhancedRibbonPushButton(*this, IsSymbol()))
+    {
+        const sal_Int32 nDispPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this);
+        const Size aImgSz = Button::HasImage() ? GetModeImage().GetSizePixel() : Size();
+        OUString sClean = get_id().startsWith("btnHomeChangeCase") ? OUString() : removeMnemonicFromString(PushButton::GetText());
+        const bool bHasText = !sClean.isEmpty();
+        const bool bMenuDrop = (mnDDStyle == PushButtonDropdownStyle::MenuButton);
+        const tools::Long nLineH = GetTextHeight();
+
+        if (Button::HasImage() && GetImageAlign() == ImageAlign::Top)
+        {
+            OUString sL1 = sClean, sL2;
+            const tools::Long nMaxLineW = vcl::officestudio::ComputeScaledMetric(68.0, nDispPct);
+            if (bHasText && GetTextWidth(sClean) > nMaxLineW)
+            {
+                sal_Int32 nBestSplit = -1;
+                tools::Long nBestMax = std::numeric_limits<tools::Long>::max();
+                for (sal_Int32 nSp = sClean.indexOf(' '); nSp > 0; nSp = sClean.indexOf(' ', nSp + 1))
+                {
+                    tools::Long nM = std::max(GetTextWidth(sClean.copy(0, nSp)),
+                                              GetTextWidth(sClean.copy(nSp + 1)));
+                    if (nM < nBestMax)
+                    {
+                        nBestMax = nM;
+                        nBestSplit = nSp;
+                    }
+                }
+                if (nBestSplit > 0)
+                {
+                    sL1 = sClean.copy(0, nBestSplit);
+                    sL2 = sClean.copy(nBestSplit + 1);
+                }
+            }
+            const tools::Long nL1W = bHasText ? GetTextWidth(sL1) : 0;
+            const tools::Long nChInlineW = (bMenuDrop && !sL2.isEmpty()) ? vcl::officestudio::ComputeScaledMetric(10.0, nDispPct) : 0;
+            const tools::Long nL2W = sL2.isEmpty() ? 0 : (GetTextWidth(sL2) + nChInlineW);
+            const tools::Long nTxtW = std::max(nL1W, nL2W);
+            const tools::Long nBotChevH = (bMenuDrop && sL2.isEmpty()) ? vcl::officestudio::ComputeScaledMetric(9.0, nDispPct) : 0;
+            const tools::Long nTxtH = (bHasText ? (sL2.isEmpty() ? nLineH : nLineH * 2) : 0) + nBotChevH;
+            const tools::Long nGap = bHasText ? vcl::officestudio::ComputeScaledMetric(2.0, nDispPct) : 0;
+
+            tools::Long nW = std::max(aImgSz.Width(), nTxtW) + vcl::officestudio::ComputeScaledMetric(10.0, nDispPct);
+            tools::Long nH = aImgSz.Height() + nGap + nTxtH + vcl::officestudio::ComputeScaledMetric(8.0, nDispPct);
+            nW = std::max<tools::Long>(nW, vcl::officestudio::ComputeScaledMetric(46.0, nDispPct));
+            nH = std::max<tools::Long>(nH, vcl::officestudio::ComputeScaledMetric(70.0, nDispPct));
+            return Size(nW, nH);
+        }
+        else
+        {
+            const tools::Long nPadH = vcl::officestudio::ComputeScaledMetric(10.0, nDispPct);
+            const tools::Long nGap = (Button::HasImage() && bHasText) ? vcl::officestudio::ComputeScaledMetric(5.0, nDispPct) : 0;
+            const tools::Long nChW = bMenuDrop ? vcl::officestudio::ComputeScaledMetric(11.0, nDispPct) : 0;
+            const tools::Long nTxtW = bHasText ? GetTextWidth(sClean) : 0;
+            const tools::Long nW = nPadH + aImgSz.Width() + nGap + nTxtW + nChW;
+            const tools::Long nH = std::max<tools::Long>(
+                std::max(aImgSz.Height(), nLineH) + vcl::officestudio::ComputeScaledMetric(5.0, nDispPct),
+                vcl::officestudio::ComputeScaledMetric(24.0, nDispPct));
+            return Size(nW, nH);
+        }
+    }
+
     Size aSize;
 
     if ( IsSymbol() )

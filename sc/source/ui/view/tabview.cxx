@@ -23,6 +23,8 @@
 #include <vcl/commandevent.hxx>
 #include <vcl/help.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/cursor.hxx>
 #include <sal/log.hxx>
 #include <tools/svborder.hxx>
@@ -65,7 +67,7 @@
 
 #define SPLIT_MARGIN      30
 #define SPLIT_HANDLE_SIZE 5
-constexpr sal_Int32 TAB_HEIGHT_MARGIN = 10;
+constexpr sal_Int32 TAB_HEIGHT_MARGIN = 12;
 
 #define SC_ICONSIZE     36
 
@@ -91,7 +93,10 @@ ScCornerButton::~ScCornerButton()
 void ScCornerButton::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
 {
     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
-    SetBackground(rStyleSettings.GetFaceColor());
+    const bool bFluentLight = !rStyleSettings.GetHighContrastMode()
+                              && vcl::officestudio::IsLightTheme(rStyleSettings)
+                              && !ThemeColors::IsThemeEnabled();
+    SetBackground(bFluentLight ? vcl::officestudio::CalcHeaderBg : rStyleSettings.GetFaceColor());
 
     Size aSize(GetOutputSizePixel());
     tools::Long nPosX = aSize.Width() - 1;
@@ -102,8 +107,30 @@ void ScCornerButton::Paint(vcl::RenderContext& rRenderContext, const tools::Rect
     bool bLayoutRTL = rViewData.GetDocument().IsLayoutRTL( rViewData.CurrentTabForData() );
     tools::Long nDarkX = bLayoutRTL ? 0 : nPosX;
 
+    if (bFluentLight && nPosX > 5 && nPosY > 5)
+    {
+        const tools::Long nTri = std::min<tools::Long>(8, std::min(nPosX, nPosY) - 4);
+        const tools::Long nPad = 3;
+        tools::Polygon aPoly(3);
+        if (bLayoutRTL)
+        {
+            aPoly.SetPoint(Point(nPad, nPosY - nPad), 0);
+            aPoly.SetPoint(Point(nPad, nPosY - nPad - nTri), 1);
+            aPoly.SetPoint(Point(nPad + nTri, nPosY - nPad), 2);
+        }
+        else
+        {
+            aPoly.SetPoint(Point(nPosX - nPad, nPosY - nPad), 0);
+            aPoly.SetPoint(Point(nPosX - nPad - nTri, nPosY - nPad), 1);
+            aPoly.SetPoint(Point(nPosX - nPad, nPosY - nPad - nTri), 2);
+        }
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::Slate300);
+        rRenderContext.DrawPolygon(aPoly);
+    }
+
     //  both buttons have the same look now - only dark right/bottom lines
-    rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
+    rRenderContext.SetLineColor(bFluentLight ? vcl::officestudio::CalcHeaderBorder : rStyleSettings.GetShadowColor());
     rRenderContext.DrawLine(Point(0, nPosY), Point(nPosX, nPosY));
     rRenderContext.DrawLine(Point(nDarkX, 0), Point(nDarkX, nPosY));
 }

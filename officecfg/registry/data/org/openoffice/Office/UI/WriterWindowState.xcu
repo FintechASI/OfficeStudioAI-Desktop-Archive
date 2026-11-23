@@ -99,7 +99,7 @@
           <value xml:lang="en-US">Standard</value>
         </prop>
         <prop oor:name="Visible" oor:type="xs:boolean">
-          <value>true</value>
+          <value>false</value>
         </prop>
         <prop oor:name="HideFromToolbarMenu" oor:type="xs:boolean">
           <value>false</value>
@@ -153,7 +153,7 @@
           <value xml:lang="en-US">Formatting</value>
         </prop>
         <prop oor:name="Visible" oor:type="xs:boolean">
-          <value>true</value>
+          <value>false</value>
         </prop>
         <prop oor:name="ContextSensitive" oor:type="xs:boolean">
           <value>true</value>

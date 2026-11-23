@@ -119,7 +119,7 @@
           <value>sdraw</value>
         </prop>
         <prop oor:name="ooSetupFactoryUIName">
-          <value>FlowCharts</value>
+          <value>Design</value>
         </prop>
         <prop oor:name="ooSetupFactoryWindowStateConfigRef">
           <value>DrawWindowState</value>

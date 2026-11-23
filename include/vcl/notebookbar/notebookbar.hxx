@@ -44,6 +44,7 @@ public:
     void SetupListener(bool bListen);
 
     const OUString & GetUIFilePath() const { return m_sUIXMLDescription; }
+    const OUString & GetModule() const { return m_sModule; }
 
 private:
     VclPtr<SystemWindow> m_pSystemWindow;

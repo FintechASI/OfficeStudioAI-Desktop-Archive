@@ -188,6 +188,22 @@ public:
     Control* GetOpenMenu();
 
     virtual Size        calculateRequisition() const override;
+    virtual void        Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+    virtual void        MouseButtonDown( const MouseEvent& rMEvt ) override;
+    virtual void        MouseButtonUp( const MouseEvent& rMEvt ) override;
+    virtual void        MouseMove( const MouseEvent& rMEvt ) override;
+    virtual bool        PreNotify( NotifyEvent& rNEvt ) override;
+
+    bool IsCalcModule() const;
+    bool IsBackstageOpen() const { return mbBackstageOpen; }
+    void SetBackstageOpen(bool bOpen);
+    tools::Long GetTabStripBottom() const { return mnTabStripBottom; }
+    const tools::Rectangle& GetSearchBoxRect() const { return maSearchBoxRect; }
+    const tools::Rectangle& GetTitleRect() const { return maTitleRect; }
+    void SetDocumentTitle(const OUString& rTitle, bool bModified);
+    void SetFileTabClickHdl(const Link<NotebookbarTabControlBase*, void>& rHdl) { m_aFileTabClickHdl = rHdl; }
+    void SetSearchClickHdl(const Link<NotebookbarTabControlBase*, void>& rHdl) { m_aSearchClickHdl = rHdl; }
+    void SetTitleClickHdl(const Link<NotebookbarTabControlBase*, void>& rHdl) { m_aTitleClickHdl = rHdl; }
 
 protected:
     virtual bool ImplPlaceTabs( tools::Long nWidth ) override;
@@ -200,6 +216,18 @@ private:
     static sal_uInt16 m_nHeaderHeight;
     VclPtr<ToolBox> m_pShortcuts;
     VclPtr<PushButton> m_pOpenMenu;
+    bool mbBackstageOpen = false;
+    bool mbFilePressed = false;
+    bool mbSearchHover = false;
+    bool mbTitleHover = false;
+    tools::Long mnTabStripBottom = 0;
+    tools::Rectangle maSearchBoxRect;
+    tools::Rectangle maTitleRect;
+    OUString maDocTitle;
+    bool mbDocModified = false;
+    Link<NotebookbarTabControlBase*, void> m_aFileTabClickHdl;
+    Link<NotebookbarTabControlBase*, void> m_aSearchClickHdl;
+    Link<NotebookbarTabControlBase*, void> m_aTitleClickHdl;
     DECL_DLLPRIVATE_LINK(OpenMenu, Button*, void);
 };
 

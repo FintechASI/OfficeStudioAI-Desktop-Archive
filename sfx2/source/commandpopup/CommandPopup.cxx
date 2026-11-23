@@ -16,12 +16,19 @@
 
 #include <comphelper/processfactory.hxx>
 #include <comphelper/dispatchcommand.hxx>
+#include <comphelper/propertyvalue.hxx>
 
+#include <com/sun/star/frame/XDispatchProvider.hpp>
+#include <com/sun/star/frame/XDispatch.hpp>
 #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+#include <com/sun/star/util/SearchAlgorithms.hpp>
+#include <com/sun/star/util/SearchAlgorithms2.hpp>
 #include <com/sun/star/util/URL.hpp>
 #include <com/sun/star/util/URLTransformer.hpp>
 #include <com/sun/star/i18n/CharacterClassification.hpp>
 
+#include <i18nutil/transliteration.hxx>
+#include <svl/srchitem.hxx>
 #include <vcl/commandinfoprovider.hxx>
 #include <vcl/event.hxx>
 #include <vcl/svapp.hxx>
@@ -186,28 +193,87 @@ OUString MenuContentHandler::toLower(OUString const& rString)
     return m_xCharacterClassification->toLower(rString, 0, rString.getLength(), rLocale);
 }
 
-CommandListBox::CommandListBox(weld::Window* pParent, uno::Reference<frame::XFrame> const& xFrame)
+CommandListBox::CommandListBox(weld::Window* pParent, uno::Reference<frame::XFrame> const& xFrame,
+                               const tools::Rectangle* pAnchorRect, bool bIncludeSheetFind)
     : mxBuilder(Application::CreateBuilder(pParent, u"sfx/ui/commandpopup.ui"_ustr))
     , mxPopover(mxBuilder->weld_popover(u"CommandPopup"_ustr))
     , mpEntry(mxBuilder->weld_entry(u"command_entry"_ustr))
     , mpCommandTreeView(mxBuilder->weld_tree_view(u"command_treeview"_ustr))
+    , mxFrame(xFrame)
     , mpMenuContentHandler(std::make_unique<MenuContentHandler>(xFrame))
+    , mbIncludeSheetFind(bIncludeSheetFind)
 {
     mpEntry->connect_changed(LINK(this, CommandListBox, ModifyHdl));
     mpEntry->connect_key_press(LINK(this, CommandListBox, TreeViewKeyPress));
     mpCommandTreeView->connect_query_tooltip(LINK(this, CommandListBox, QueryTooltip));
     mpCommandTreeView->connect_item_activated(LINK(this, CommandListBox, RowActivated));
 
+    if (mbIncludeSheetFind)
+        mpEntry->set_placeholder_text(u"Type a command or text to find in sheet..."_ustr);
+
     Size aFrameSize = pParent->get_size();
+    tools::Long nWidth = pAnchorRect
+                             ? std::max<tools::Long>(pAnchorRect->GetWidth(), 400)
+                             : std::max(tools::Long(400), aFrameSize.Width() / 3);
+    tools::Long nHeight = pAnchorRect ? 250 : 400;
+    mpCommandTreeView->set_size_request(nWidth, nHeight);
 
-    // Set size of the pop-over window
-    tools::Long nWidth = std::max(tools::Long(400), aFrameSize.Width() / 3);
-    mpCommandTreeView->set_size_request(nWidth, 400);
+    if (mbIncludeSheetFind)
+        populateDefaultActions();
 
-    // Set the location of the pop-over window
-    tools::Rectangle aRect(Point(aFrameSize.Width() / 2, 0), Size(0, 0));
-    mxPopover->popup_at_rect(pParent, aRect);
+    tools::Rectangle aRect;
+    if (pAnchorRect)
+    {
+        const tools::Long nCenteredLeft = std::max<tools::Long>(
+            8, pAnchorRect->Left() - (nWidth - pAnchorRect->GetWidth()) / 2);
+        aRect = tools::Rectangle(Point(nCenteredLeft, pAnchorRect->Top()),
+                                 Size(nWidth, pAnchorRect->GetHeight() + 4));
+    }
+    else
+    {
+        aRect = tools::Rectangle(Point(aFrameSize.Width() / 2, 0), Size(0, 0));
+    }
+    mxPopover->popup_at_rect(pParent, aRect, weld::Placement::Under);
     mpEntry->grab_focus();
+}
+
+void CommandListBox::populateDefaultActions()
+{
+    struct QuickAction
+    {
+        const char16_t* pLabel;
+        const char16_t* pCmd;
+    };
+    static constexpr QuickAction aActions[] = {
+        { u"Find and Replace... (Ctrl+H)", u".uno:SearchDialog" },
+        { u"Sort...", u".uno:DataSort" },
+        { u"Insert Chart...", u".uno:InsertObjectChart" },
+        { u"Freeze Rows and Columns", u".uno:FreezePanes" },
+        { u"Export as PDF...", u".uno:ExportToPDF" },
+        { u"Spreadsheet Options...", u".uno:OptionsTreeDialog" },
+    };
+
+    const OUString sModule = vcl::CommandInfoProvider::GetModuleIdentifier(mxFrame);
+    mpCommandTreeView->freeze();
+    for (const auto& rAct : aActions)
+    {
+        const OUString sCmd(rAct.pCmd);
+        const OUString sLabel(rAct.pLabel);
+        auto aProps = vcl::CommandInfoProvider::GetCommandProperties(sCmd, sModule);
+        const OUString sTooltip = vcl::CommandInfoProvider::GetTooltipForCommand(sCmd, aProps, mxFrame);
+        auto xGraphic = vcl::CommandInfoProvider::GetXGraphicForCommand(sCmd, mxFrame);
+        maCommandList.emplace_back(sCmd, sTooltip);
+        auto pIter = mpCommandTreeView->make_iterator();
+        mpCommandTreeView->insert(nullptr, -1, &sLabel, nullptr, nullptr, nullptr, false, pIter.get());
+        mpCommandTreeView->set_image(*pIter, xGraphic);
+    }
+    mpCommandTreeView->thaw();
+
+    if (mpCommandTreeView->n_children() > 0)
+    {
+        mpCommandTreeView->set_cursor(0);
+        mpCommandTreeView->select(0);
+    }
 }
 
 IMPL_LINK_NOARG(CommandListBox, QueryTooltip, const weld::TreeIter&, OUString)
@@ -266,9 +332,23 @@ IMPL_LINK_NOARG(CommandListBox, ModifyHdl, weld::Entry&, void)
 
     OUString sText = mpEntry->get_text();
     if (sText.isEmpty())
+    {
+        if (mbIncludeSheetFind)
+            populateDefaultActions();
         return;
+    }
 
     mpCommandTreeView->freeze();
+    if (mbIncludeSheetFind)
+    {
+        const OUString sFindLabel = u"Find \"" + sText + u"\" in Sheet";
+        const OUString sFindCmd = u"calc-find:" + sText;
+        auto xGraphic = vcl::CommandInfoProvider::GetXGraphicForCommand(u".uno:SearchDialog"_ustr, mxFrame);
+        maCommandList.emplace_back(sFindCmd, u"Search for matching cell values in the active spreadsheet"_ustr);
+        auto pIter = mpCommandTreeView->make_iterator();
+        mpCommandTreeView->insert(nullptr, -1, &sFindLabel, nullptr, nullptr, nullptr, false, pIter.get());
+        mpCommandTreeView->set_image(*pIter, xGraphic);
+    }
     mpMenuContentHandler->findInMenu(sText, mpCommandTreeView, maCommandList);
     mpCommandTreeView->thaw();
 
@@ -283,16 +363,75 @@ IMPL_LINK_NOARG(CommandListBox, ModifyHdl, weld::Entry&, void)
 
 void CommandListBox::dispatchCommandAndClose(OUString const& rCommand)
 {
+    // Copy members before popdown() since PopupModeEnd resets mpListBox
+    const OUString sCommand = rCommand;
+    uno::Reference<frame::XFrame> xFrame = mxFrame;
     mxPopover->popdown();
 
-    if (!rCommand.isEmpty())
-        comphelper::dispatchCommand(rCommand, uno::Sequence<beans::PropertyValue>());
+    if (sCommand.isEmpty())
+        return;
+
+    if (sCommand.startsWith(u"calc-find:"))
+    {
+        const OUString sQuery = sCommand.copy(10);
+        if (!sQuery.isEmpty() && xFrame.is())
+        {
+            try
+            {
+                auto xTrans = util::URLTransformer::create(comphelper::getProcessComponentContext());
+                util::URL aURL;
+                aURL.Complete = u".uno:ExecuteSearch"_ustr;
+                xTrans->parseStrict(aURL);
+
+                uno::Sequence<beans::PropertyValue> aArgs{
+                    comphelper::makePropertyValue(u"SearchItem.SearchString"_ustr, sQuery),
+                    comphelper::makePropertyValue(u"SearchItem.CellType"_ustr, sal_Int16(SvxSearchCellType::VALUE)),
+                    comphelper::makePropertyValue(u"SearchItem.Backward"_ustr, false),
+                    comphelper::makePropertyValue(u"SearchItem.SearchFlags"_ustr, sal_Int32(0)),
+                    comphelper::makePropertyValue(u"SearchItem.TransliterateFlags"_ustr,
+                                                  static_cast<sal_Int32>(TransliterationFlags::IGNORE_CASE)),
+                    comphelper::makePropertyValue(u"SearchItem.Command"_ustr,
+                                                  static_cast<sal_Int16>(SvxSearchCmd::FIND)),
+                    comphelper::makePropertyValue(u"SearchItem.AlgorithmType"_ustr,
+                                                  sal_Int16(util::SearchAlgorithms_ABSOLUTE)),
+                    comphelper::makePropertyValue(u"SearchItem.AlgorithmType2"_ustr,
+                                                  sal_Int16(util::SearchAlgorithms2::ABSOLUTE)),
+                    comphelper::makePropertyValue(u"SearchItem.SearchFormatted"_ustr, false),
+                    comphelper::makePropertyValue(u"UseAttrItemList"_ustr, false),
+                };
+
+                uno::Reference<frame::XDispatchProvider> xProvider(xFrame, uno::UNO_QUERY);
+                if (xProvider.is())
+                {
+                    uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, OUString(), 0);
+                    if (xDispatch.is())
+                        xDispatch->dispatch(aURL, aArgs);
+                }
+            }
+            catch (const uno::Exception&)
+            {
+            }
+        }
+        return;
+    }
+
+    comphelper::dispatchCommand(sCommand, uno::Sequence<beans::PropertyValue>());
 }
 
 void CommandPopupHandler::showPopup(weld::Window* pParent,
                                     css::uno::Reference<css::frame::XFrame> const& xFrame)
 {
     auto pCommandListBox = std::make_unique<CommandListBox>(pParent, xFrame);
+    pCommandListBox->connect_closed(LINK(this, CommandPopupHandler, PopupModeEnd));
+    mpListBox = std::move(pCommandListBox);
+}
+
+void CommandPopupHandler::showPopupAtRect(weld::Window* pParent,
+                                          css::uno::Reference<css::frame::XFrame> const& xFrame,
+                                          const tools::Rectangle& rAnchorRect,
+                                          bool bIncludeSheetFind)
+{
+    auto pCommandListBox = std::make_unique<CommandListBox>(pParent, xFrame, &rAnchorRect, bIncludeSheetFind);
     pCommandListBox->connect_closed(LINK(this, CommandPopupHandler, PopupModeEnd));
     mpListBox = std::move(pCommandListBox);
 }

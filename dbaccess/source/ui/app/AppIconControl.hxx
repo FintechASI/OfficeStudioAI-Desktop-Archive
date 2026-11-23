@@ -42,6 +42,7 @@ namespace dbaui
 
     public:
         explicit OApplicationIconControl(std::unique_ptr<weld::ScrolledWindow> xScroll);
+        virtual void UpdateColors(const StyleSettings& rSettings) override;
         virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override;
         virtual void Resize() override;
         virtual tools::Rectangle GetFocusRect() override;

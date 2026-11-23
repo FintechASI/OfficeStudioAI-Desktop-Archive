@@ -298,6 +298,7 @@ public:
     virtual void    PixelInvalidate(const tools::Rectangle* pRectangle) override;
     virtual void    SetSizePixel( const Size& rNewSize ) override;
     virtual void    Resize() override;
+    virtual void    Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
     virtual void    Select() override;
 
     void            SetFuncString( const OUString& rString, bool bDoEdit = true );

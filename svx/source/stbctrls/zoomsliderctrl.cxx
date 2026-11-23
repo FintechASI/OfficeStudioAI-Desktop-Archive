@@ -24,7 +24,12 @@
 #include <vcl/image.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <vcl/commandinfoprovider.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
 #include <vcl/event.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
 #include <svx/zoomslideritem.hxx>
 #include <svx/dialmgr.hxx>
 #include <svx/strings.hrc>
@@ -238,6 +243,84 @@ void SvxZoomSliderControl::Paint( const UserDrawEvent& rUsrEvt )
     auto popIt = pDev->ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
 
     const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bFluentCalc = m_xFrame.is()
+        && vcl::CommandInfoProvider::GetModuleIdentifier(m_xFrame) == u"com.sun.star.sheet.SpreadsheetDocument"_ustr
+        && vcl::officestudio::IsLightTheme(rStyleSettings)
+        && !ThemeColors::IsThemeEnabled();
+
+    if (bFluentCalc)
+    {
+        const AntialiasingFlags eOldAA = pDev->GetAntialiasing();
+        pDev->SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+        const double fScale = pDev->GetDPIScaleFactor();
+        const double cy = static_cast<double>(aRect.Top()) + static_cast<double>(aControlRect.GetHeight()) * 0.5;
+        const double x1 = static_cast<double>(aSlider.Left());
+        const double x2 = static_cast<double>(aSlider.Right());
+        const double thumbX = std::clamp(
+            static_cast<double>(aRect.Left() + Zoom2Offset(mxImpl->mnCurrentZoom)), x1, x2);
+
+        // Snap ticks (subtle vertical markers)
+        pDev->SetLineColor(vcl::officestudio::Slate400);
+        for (const auto& rSnappingPoint : mxImpl->maSnappingPointOffsets)
+        {
+            const tools::Long nSnapPosX = aRect.Left() + rSnappingPoint;
+            pDev->DrawLine(
+                Point(nSnapPosX, static_cast<tools::Long>(std::lround(cy - 3.5 * fScale))),
+                Point(nSnapPosX, static_cast<tools::Long>(std::lround(cy + 3.5 * fScale))));
+        }
+
+        // Background track
+        const double fHalfTrack = std::max(1.0, 1.2 * fScale);
+        basegfx::B2DPolygon aTrack = basegfx::utils::createPolygonFromRect(
+            basegfx::B2DRectangle(x1, cy - fHalfTrack, x2, cy + fHalfTrack), 1.0, 1.0);
+        pDev->SetLineColor();
+        pDev->SetFillColor(vcl::officestudio::Slate300);
+        pDev->DrawPolygon(aTrack);
+
+        // Active green portion
+        if (thumbX > x1 + 1.0)
+        {
+            basegfx::B2DPolygon aFillTrack = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(x1, cy - fHalfTrack, thumbX, cy + fHalfTrack), 1.0, 1.0);
+            pDev->SetFillColor(vcl::officestudio::CalcAccent);
+            pDev->DrawPolygon(aFillTrack);
+        }
+
+        // Vector minus (-) and plus (+) buttons aligned with hit zones
+        const double fBtnR = 4.0 * fScale;
+        const double fBtnStroke = std::max(1.3, 1.5 * fScale);
+        const double fMinusCx = static_cast<double>(aRect.Left()) + static_cast<double>(nSliderXOffset) * 0.5;
+        const double fPlusCx = static_cast<double>(aRect.Left() + aControlRect.GetWidth()) - static_cast<double>(nSliderXOffset) * 0.5;
+        pDev->SetFillColor();
+        pDev->SetLineColor(vcl::officestudio::Slate600);
+        basegfx::B2DPolygon aMinus;
+        aMinus.append(basegfx::B2DPoint(fMinusCx - fBtnR, cy));
+        aMinus.append(basegfx::B2DPoint(fMinusCx + fBtnR, cy));
+        pDev->DrawPolyLine(aMinus, fBtnStroke, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+
+        basegfx::B2DPolygon aPlusH;
+        aPlusH.append(basegfx::B2DPoint(fPlusCx - fBtnR, cy));
+        aPlusH.append(basegfx::B2DPoint(fPlusCx + fBtnR, cy));
+        pDev->DrawPolyLine(aPlusH, fBtnStroke, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+        basegfx::B2DPolygon aPlusV;
+        aPlusV.append(basegfx::B2DPoint(fPlusCx, cy - fBtnR));
+        aPlusV.append(basegfx::B2DPoint(fPlusCx, cy + fBtnR));
+        pDev->DrawPolyLine(aPlusV, fBtnStroke, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+
+        // Modern circular thumb with Excel green ring
+        const double fThumbR = 5.0 * fScale;
+        basegfx::B2DPolygon aThumb = basegfx::utils::createPolygonFromCircle(
+            basegfx::B2DPoint(thumbX, cy), fThumbR);
+        pDev->SetLineColor();
+        pDev->SetFillColor(COL_WHITE);
+        pDev->DrawPolygon(aThumb);
+        pDev->SetFillColor();
+        pDev->SetLineColor(vcl::officestudio::CalcAccent);
+        pDev->DrawPolyLine(aThumb, std::max(1.4, 1.6 * fScale), basegfx::B2DLineJoin::Round);
+        pDev->SetAntialiasing(eOldAA);
+        return;
+    }
+
     pDev->SetLineColor( rStyleSettings.GetDarkShadowColor() );
     pDev->SetFillColor( rStyleSettings.GetDarkShadowColor() );
 

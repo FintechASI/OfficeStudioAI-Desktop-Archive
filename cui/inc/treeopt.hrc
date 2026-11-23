@@ -125,7 +125,7 @@ const std::pair<TranslateId, sal_uInt16> SID_SD_EDITOPTIONS_RES[] =
 
 const std::pair<TranslateId, sal_uInt16> SID_SD_GRAPHIC_OPTIONS_RES[] =
 {
-    { NC_("SID_SD_GRAPHIC_OPTIONS_RES", "%PRODUCTNAME FlowCharts"), 0 },
+    { NC_("SID_SD_GRAPHIC_OPTIONS_RES", "%PRODUCTNAME Design"), 0 },
     { NC_("SID_SD_GRAPHIC_OPTIONS_RES", "General"),           SID_SD_TP_MISC               },
     { NC_("SID_SD_GRAPHIC_OPTIONS_RES", "View"),          SID_SD_TP_CONTENTS           },
     { NC_("SID_SD_GRAPHIC_OPTIONS_RES", "Grid"),          SID_SD_TP_SNAP               },

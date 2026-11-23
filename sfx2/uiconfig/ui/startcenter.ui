@@ -119,7 +119,7 @@
                 </child>
                 <child>
                   <object class="GtkDrawingArea" id="daSidebarNav">
-                    <property name="width-request">196</property>
+                    <property name="width-request">188</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="vexpand">True</property>
@@ -278,7 +278,7 @@
                     </child>
                     <child>
                       <object class="GtkButton" id="draw_all">
-                        <property name="label" translatable="yes" context="startcenter|draw_all">_FlowCharts</property>
+                        <property name="label" translatable="yes" context="startcenter|draw_all">_Design</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
@@ -296,7 +296,7 @@
                     </child>
                     <child>
                       <object class="GtkButton" id="math_all">
-                        <property name="label" translatable="yes" context="startcenter|math_all">M_ath Formula</property>
+                        <property name="label" translatable="yes" context="startcenter|math_all">_Math</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
@@ -314,7 +314,7 @@
                     </child>
                     <child>
                       <object class="GtkButton" id="database_all">
-                        <property name="label" translatable="yes" context="startcenter|database_all">_Base Database</property>
+                        <property name="label" translatable="yes" context="startcenter|database_all">_Database</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
@@ -477,7 +477,7 @@
             </child>
             <child>
               <object class="GtkDrawingArea" id="daBrand">
-                <property name="height-request">88</property>
+                <property name="height-request">76</property>
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="hexpand">True</property>
@@ -498,7 +498,7 @@
                   <object class="GtkLabel" id="daCreateSection_label">
                     <property name="can-focus">False</property>
                     <property name="no-show-all">True</property>
-                    <property name="label" translatable="yes" context="startcenter|daCreateSection_label">Create New</property>
+                    <property name="label" translatable="yes" context="startcenter|daCreateSection_label">Applications</property>
                     <property name="mnemonic-widget">daCreateSection</property>
                   </object>
                   <packing>
@@ -509,7 +509,7 @@
                 </child>
                 <child>
                   <object class="GtkDrawingArea" id="daCreateSection">
-                    <property name="height-request">192</property>
+                    <property name="height-request">408</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="hexpand">True</property>
@@ -536,7 +536,7 @@
                 </child>
                 <child>
                   <object class="GtkDrawingArea" id="daRecentHeader">
-                    <property name="height-request">38</property>
+                    <property name="height-request">34</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="hexpand">True</property>
@@ -586,11 +586,11 @@
               <object class="GtkGrid" id="actions">
                 <property name="visible">False</property>
                 <property name="can-focus">False</property>
-                <property name="margin-start">24</property>
-                <property name="margin-end">24</property>
-                <property name="margin-top">12</property>
-                <property name="margin-bottom">6</property>
-                <property name="column-spacing">6</property>
+                <property name="margin-start">28</property>
+                <property name="margin-end">28</property>
+                <property name="margin-top">14</property>
+                <property name="margin-bottom">10</property>
+                <property name="column-spacing">8</property>
                 <child>
                   <object class="GtkLabel" id="lbFilter">
                     <property name="visible">True</property>
@@ -617,7 +617,9 @@
                       <item id="filter_writer" translatable="yes" context="startcenter|filter_writer">Docs</item>
                       <item id="filter_calc" translatable="yes" context="startcenter|filter_calc">Spreadsheets</item>
                       <item id="filter_impress" translatable="yes" context="startcenter|filter_impress">SlideShows</item>
-                      <item id="filter_draw" translatable="yes" context="startcenter|filter_draw">FlowCharts</item>
+                      <item id="filter_draw" translatable="yes" context="startcenter|filter_draw">Design</item>
+                      <item id="filter_database" translatable="yes" context="startcenter|filter_database">Database</item>
+                      <item id="filter_math" translatable="yes" context="startcenter|filter_math">Math</item>
                     </items>
                     <accessibility>
                       <relation type="labelled-by" target="lbFilter"/>
@@ -686,7 +688,7 @@
                 <property name="can-focus">True</property>
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
-                <property name="shadow-type">in</property>
+                <property name="shadow-type">none</property>
                 <child>
                   <object class="GtkViewport">
                     <property name="visible">True</property>
@@ -717,7 +719,7 @@
                 <property name="can-focus">True</property>
                 <property name="hexpand">True</property>
                 <property name="vexpand">True</property>
-                <property name="shadow-type">in</property>
+                <property name="shadow-type">none</property>
                 <child>
                   <object class="GtkViewport">
                     <property name="visible">True</property>
@@ -865,7 +867,7 @@
     </child>
     <child>
       <object class="GtkDrawingArea" id="daFooter">
-        <property name="height-request">36</property>
+        <property name="height-request">34</property>
         <property name="visible">True</property>
         <property name="can-focus">True</property>
         <property name="hexpand">True</property>

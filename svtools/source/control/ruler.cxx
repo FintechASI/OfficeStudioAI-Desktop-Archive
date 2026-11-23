@@ -23,6 +23,7 @@
 #include <tools/poly.hxx>
 #include <vcl/event.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/settings.hxx>
 #include <vcl/vcllayout.hxx>
 #include <vcl/virdev.hxx>
@@ -529,7 +530,10 @@ void Ruler::ImplDrawTicks(vcl::RenderContext& rRenderContext, tools::Long nMin, 
     }
     else
     {
-        rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
+        rRenderContext.SetLineColor(
+            (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+                ? vcl::officestudio::Slate400
+                : rStyleSettings.GetShadowColor());
     }
 
     if (bNoTicks)
@@ -575,7 +579,10 @@ void Ruler::ImplDrawTicks(vcl::RenderContext& rRenderContext, tools::Long nMin, 
             double aStep = nTick / nTick4;
             double aRest = std::abs(aStep - std::floor(aStep));
             double nAcceptanceDelta = 0.0001;
-            rRenderContext.SetFillColor(rStyleSettings.GetShadowColor());
+            rRenderContext.SetFillColor(
+                (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+                    ? vcl::officestudio::Slate400
+                    : rStyleSettings.GetShadowColor());
 
             if (aRest < nAcceptanceDelta)
             {
@@ -987,12 +994,20 @@ void Ruler::ApplySettings(vcl::RenderContext& rRenderContext)
 
     ApplyControlFont(rRenderContext, aFont);
 
-    ApplyControlForeground(*GetOutDev(), rStyleSettings.GetDarkShadowColor());
+    ApplyControlForeground(*GetOutDev(),
+        (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+            ? vcl::officestudio::Slate500
+            : rStyleSettings.GetDarkShadowColor());
     SetTextFillColor();
 
     Color aColor;
-    svtools::ColorConfig aColorConfig;
-    aColor = aColorConfig.GetColorValue(svtools::APPBACKGROUND).nColor;
+    if (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+        aColor = vcl::officestudio::CanvasBg;
+    else
+    {
+        svtools::ColorConfig aColorConfig;
+        aColor = aColorConfig.GetColorValue(svtools::APPBACKGROUND).nColor;
+    }
     ApplyControlBackground(rRenderContext, aColor);
     // A hack to get it to change the non-ruler application background to change immediately
     if (aColor != maVirDev->GetBackground().GetColor())
@@ -1018,15 +1033,23 @@ void Ruler::ImplInitSettings(bool bFont, bool bForeground, bool bBackground)
 
     if (bForeground || bFont)
     {
-        ApplyControlForeground(*GetOutDev(), rStyleSettings.GetDarkShadowColor());
+        ApplyControlForeground(*GetOutDev(),
+            (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+                ? vcl::officestudio::Slate500
+                : rStyleSettings.GetDarkShadowColor());
         SetTextFillColor();
     }
 
     if (bBackground)
     {
         Color aColor;
-        svtools::ColorConfig aColorConfig;
-        aColor = aColorConfig.GetColorValue(svtools::APPBACKGROUND).nColor;
+        if (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled())
+            aColor = vcl::officestudio::CanvasBg;
+        else
+        {
+            svtools::ColorConfig aColorConfig;
+            aColor = aColorConfig.GetColorValue(svtools::APPBACKGROUND).nColor;
+        }
         ApplyControlBackground(*GetOutDev(), aColor);
     }
 
@@ -1180,8 +1203,11 @@ void Ruler::ImplFormat(vcl::RenderContext const & rRenderContext)
         nP2 = nM2;
     }
 
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::IsThemeEnabled();
+    const Color aBorderColor = bFluentLight ? vcl::officestudio::RibbonCardBorder : rStyleSettings.GetShadowColor();
+
     // top/bottom border
-    maVirDev->SetLineColor(rStyleSettings.GetShadowColor());
+    maVirDev->SetLineColor(aBorderColor);
     ImplVDrawLine(*maVirDev, nVirLeft, nVirTop + 1, nM1,     nVirTop + 1); //top left line
     ImplVDrawLine(*maVirDev, nM2,      nVirTop + 1, nP2 - 1, nVirTop + 1); //top right line
 
@@ -1194,6 +1220,11 @@ void Ruler::ImplFormat(vcl::RenderContext const & rRenderContext)
     {
         aRulerColor = ThemeColors::GetThemeColors().GetBaseColor();
         aMarginRulerColor = ThemeColors::GetThemeColors().GetWindowColor();
+    }
+    else if (bFluentLight)
+    {
+        aRulerColor = COL_WHITE;
+        aMarginRulerColor = vcl::officestudio::SurfaceSubtle;
     }
     else
     {
@@ -1213,7 +1244,7 @@ void Ruler::ImplFormat(vcl::RenderContext const & rRenderContext)
         maVirDev->SetFillColor(aRulerColor);
         ImplVDrawRect(*maVirDev, nM1 + 1, nVirTop, nM2 - 1, nVirBottom); //center rectangle
     }
-    maVirDev->SetLineColor(rStyleSettings.GetShadowColor());
+    maVirDev->SetLineColor(aBorderColor);
     if (nM1 > nVirLeft)
     {
         ImplVDrawLine(*maVirDev, nM1, nVirTop + 1, nM1, nVirBottom); //right line of the left rectangle

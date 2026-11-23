@@ -19,6 +19,8 @@
 
 #include <vcl/salnativewidgets.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/outdev.hxx>
 #include <vcl/decoview.hxx>
 #include <vcl/window.hxx>
@@ -955,6 +957,8 @@ void DecorationView::DrawSeparator( const Point& rStart, const Point& rStop, boo
     auto popIt = mpOutDev->ScopedPush(vcl::PushFlags::LINECOLOR);
     if ( rStyleSettings.GetOptions() & StyleSettingsOptions::Mono )
         mpOutDev->SetLineColor( COL_BLACK );
+    else if (vcl::officestudio::IsLightTheme(rStyleSettings) && !ThemeColors::VclPluginCanUseThemeColors())
+        mpOutDev->SetLineColor(vcl::officestudio::Divider);
     else
         mpOutDev->SetLineColor( rStyleSettings.GetSeparatorColor() );
 

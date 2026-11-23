@@ -25,6 +25,6 @@ $(eval $(call gb_Executable_add_exception_objects,sdraw,\
 
 $(eval $(call gb_Executable_add_nativeres,sdraw,sdraw/launcher))
 
-$(eval $(call gb_Executable_add_default_nativeres,sdraw,$(PRODUCTNAME) FlowCharts))
+$(eval $(call gb_Executable_add_default_nativeres,sdraw,$(PRODUCTNAME) Design))
 
 # vim: set ts=4 sw=4 et:

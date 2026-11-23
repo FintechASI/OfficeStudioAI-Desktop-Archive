@@ -113,6 +113,7 @@ private:
 
     sfx2::LoadRecentFile* mpLoadRecentFile;
     ImplSVEvent* m_nExecuteHdlId;
+    bool mbHasAnyHistory;
 };
 
 } // namespace sfx2

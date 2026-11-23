@@ -26,6 +26,7 @@
 #include <vcl/toolkit/svlbitm.hxx>
 #include <tools/stream.hxx>
 #include <vcl/cvtgrf.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 
 namespace
 {
@@ -177,8 +178,9 @@ void IconView::PaintEntry(SvTreeListEntry& rEntry, tools::Long nX, tools::Long n
         nTempEntryHeight = aOutputSize.getHeight();
 
     const SvViewDataEntry* pViewDataEntry = GetViewDataEntry(&rEntry);
+    const bool bFluentRibbon = vcl::officestudio::IsEnhancedRibbonWindow(*this);
 
-    if (pViewDataEntry->IsHighlighted())
+    if (pViewDataEntry->IsHighlighted() && !bFluentRibbon)
     {
         vcl::Font aHighlightFont(rRenderContext.GetFont());
         const Color aHighlightTextColor(rSettings.GetHighlightTextColor());
@@ -198,17 +200,24 @@ void IconView::PaintEntry(SvTreeListEntry& rEntry, tools::Long nX, tools::Long n
 
         if (pViewDataEntry->IsHighlighted())
         {
-            Color aNewWallColor = rSettings.GetHighlightColor();
-            // if the face color is bright then the deactivate color is also bright
-            // -> so you can't see any deactivate selection
-            const WinBits nWindowStyle = GetStyle();
-            const bool bHideSelection = (nWindowStyle & WB_HIDESELECTION) != 0 && !HasFocus();
-            if (bHideSelection && !rSettings.GetFaceColor().IsBright()
-                && aWallpaper.GetColor().IsBright() != rSettings.GetDeactiveColor().IsBright())
+            if (bFluentRibbon)
             {
-                aNewWallColor = rSettings.GetDeactiveColor();
+                aWallpaper.SetColor(COL_WHITE);
             }
-            aWallpaper.SetColor(aNewWallColor);
+            else
+            {
+                Color aNewWallColor = rSettings.GetHighlightColor();
+                // if the face color is bright then the deactivate color is also bright
+                // -> so you can't see any deactivate selection
+                const WinBits nWindowStyle = GetStyle();
+                const bool bHideSelection = (nWindowStyle & WB_HIDESELECTION) != 0 && !HasFocus();
+                if (bHideSelection && !rSettings.GetFaceColor().IsBright()
+                    && aWallpaper.GetColor().IsBright() != rSettings.GetDeactiveColor().IsBright())
+                {
+                    aNewWallColor = rSettings.GetDeactiveColor();
+                }
+                aWallpaper.SetColor(aNewWallColor);
+            }
         }
 
         Color aBackgroundColor = aWallpaper.GetColor();
@@ -278,6 +287,16 @@ void IconView::PaintEntry(SvTreeListEntry& rEntry, tools::Long nX, tools::Long n
         aEntryPos.AdjustY((nImageAreaHeight - nItemHeight) / 2 + m_nSpacing);
 
         rItem.Paint(aEntryPos, *this, rRenderContext, pViewDataEntry, rEntry);
+    }
+
+    if (bFluentRibbon && pViewDataEntry->IsHighlighted() && nTempEntryWidth > 2 && nTempEntryHeight > 2)
+    {
+        auto popSelFrame = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(vcl::officestudio::IsCalcRibbonWindow(*this)
+                                        ? Color(0x60, 0x5E, 0x5C)
+                                        : Color(0x9A, 0x9A, 0x9A));
+        rRenderContext.DrawRect(tools::Rectangle(Point(nX, nY), Size(nTempEntryWidth, nTempEntryHeight)));
     }
 }
 

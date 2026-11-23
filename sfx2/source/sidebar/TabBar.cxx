@@ -24,14 +24,24 @@
 #include <sfx2/sidebar/FocusManager.hxx>
 #include <sfx2/sidebar/SidebarController.hxx>
 
+#include <algorithm>
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <cmath>
 #include <comphelper/lok.hxx>
 #include <comphelper/processfactory.hxx>
 #include <o3tl/safeint.hxx>
 #include <utility>
+#include <vector>
 #include <vcl/commandevent.hxx>
 #include <vcl/commandinfoprovider.hxx>
 #include <vcl/event.hxx>
+#include <vcl/graph.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
+#include <vcl/rendercontext/DrawTextFlags.hxx>
+#include <vcl/settings.hxx>
 #include <vcl/svapp.hxx>
+#include <vcl/virdev.hxx>
 #include <vcl/weld/Box.hxx>
 #include <vcl/weld/Menu.hxx>
 #include <vcl/weld/MenuButton.hxx>
@@ -242,8 +252,278 @@ void TabBar::CreateTabItem(weld::Toolbar& rItem, const DeckDescriptor& rDeckDesc
     rItem.set_item_tooltip_text(u"toggle"_ustr, rDeckDescriptor.msHelpText + sShortcut);
 }
 
+namespace
+{
+struct DeckColorStyle
+{
+    Color aFg;
+    Color aTileBg;
+    Color aTileBorder;
+};
+
+void DrawPoly(VirtualDevice& rDev, const std::vector<basegfx::B2DPoint>& rPts,
+              bool bClosed, Color aColor, double fWidth)
+{
+    basegfx::B2DPolygon aPoly;
+    for (const auto& pt : rPts)
+        aPoly.append(pt);
+    aPoly.setClosed(bClosed);
+    rDev.SetFillColor();
+    rDev.SetLineColor(aColor);
+    rDev.DrawPolyLine(aPoly, fWidth, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+}
+
+void DrawCircle(VirtualDevice& rDev, double cx, double cy, double r,
+                Color aColor, double fWidth, bool bFill = false)
+{
+    basegfx::B2DPolygon aPoly = basegfx::utils::createPolygonFromCircle(basegfx::B2DPoint(cx, cy), r);
+    if (bFill)
+    {
+        rDev.SetLineColor();
+        rDev.SetFillColor(aColor);
+        rDev.DrawPolygon(aPoly);
+    }
+    else
+    {
+        rDev.SetFillColor();
+        rDev.SetLineColor(aColor);
+        rDev.DrawPolyLine(aPoly, fWidth, basegfx::B2DLineJoin::Round);
+    }
+}
+
+css::uno::Reference<css::graphic::XGraphic> MakeColorfulDeckGraphic(const OUString& rDeckId, float fScale)
+{
+    int nKind = -1;
+    DeckColorStyle aStyle{ Color(0x25, 0x63, 0xEB), Color(0xEF, 0xF6, 0xFF), Color(0xBF, 0xDB, 0xFE) };
+
+    if (rDeckId == u"PropertyDeck")
+    {
+        nKind = 0;
+        aStyle = { Color(0x25, 0x63, 0xEB), Color(0xEF, 0xF6, 0xFF), Color(0xBF, 0xDB, 0xFE) };
+    }
+    else if (rDeckId == u"StyleListDeck")
+    {
+        nKind = 1;
+        aStyle = { Color(0x7C, 0x3A, 0xED), Color(0xF5, 0xF3, 0xFF), Color(0xDD, 0xD6, 0xFE) };
+    }
+    else if (rDeckId == u"GalleryDeck")
+    {
+        nKind = 2;
+        aStyle = { Color(0x16, 0xA3, 0x4A), Color(0xF0, 0xFD, 0xF4), Color(0xBB, 0xF7, 0xD0) };
+    }
+    else if (rDeckId == u"NavigatorDeck")
+    {
+        nKind = 3;
+        aStyle = { Color(0xEA, 0x58, 0x0C), Color(0xFF, 0xF7, 0xED), Color(0xFE, 0xD7, 0xAA) };
+    }
+    else if (rDeckId == u"WriterPageDeck")
+    {
+        nKind = 4;
+        aStyle = { Color(0x02, 0x84, 0xC7), Color(0xF0, 0xF9, 0xFF), Color(0xBA, 0xE6, 0xFD) };
+    }
+    else if (rDeckId == u"InspectorDeck")
+    {
+        nKind = 5;
+        aStyle = { Color(0x4F, 0x46, 0xE5), Color(0xEE, 0xF2, 0xFF), Color(0xC7, 0xD2, 0xFE) };
+    }
+    else if (rDeckId == u"SwManageChangesDeck")
+    {
+        nKind = 6;
+        aStyle = { Color(0xE1, 0x1D, 0x48), Color(0xFF, 0xF1, 0xF2), Color(0xFE, 0xCD, 0xD3) };
+    }
+    else if (rDeckId == u"SwDesignDeck")
+    {
+        nKind = 7;
+        aStyle = { Color(0xDB, 0x27, 0x77), Color(0xFD, 0xF2, 0xF8), Color(0xFB, 0xCF, 0xE8) };
+    }
+    else if (rDeckId == u"A11yCheckDeck")
+    {
+        nKind = 8;
+        aStyle = { Color(0x0D, 0x94, 0x88), Color(0xF0, 0xFD, 0xFA), Color(0x99, 0xF6, 0xE4) };
+    }
+    else if (rDeckId == u"CommentsDeck")
+    {
+        nKind = 9;
+        aStyle = { Color(0xD9, 0x77, 0x06), Color(0xFF, 0xFB, 0xEB), Color(0xFD, 0xE6, 0x8A) };
+    }
+    else if (rDeckId == u"FindDeck")
+    {
+        nKind = 10;
+        aStyle = { Color(0x08, 0x91, 0xB2), Color(0xEC, 0xFE, 0xFF), Color(0xA5, 0xF3, 0xFC) };
+    }
+    else if (rDeckId == u"ScFunctionsDeck")
+    {
+        nKind = 11;
+        aStyle = { Color(0x16, 0xA3, 0x4A), Color(0xF0, 0xFD, 0xF4), Color(0xBB, 0xF7, 0xD0) };
+    }
+    else if (rDeckId == u"ShapesDeck")
+    {
+        nKind = 12;
+        aStyle = { Color(0xE1, 0x1D, 0x48), Color(0xFF, 0xF1, 0xF2), Color(0xFE, 0xCD, 0xD3) };
+    }
+    else if (rDeckId == u"SdSlideTransitionDeck")
+    {
+        nKind = 13;
+        aStyle = { Color(0x0D, 0x94, 0x88), Color(0xF0, 0xFD, 0xFA), Color(0x99, 0xF6, 0xE4) };
+    }
+    else if (rDeckId == u"SdCustomAnimationDeck")
+    {
+        nKind = 14;
+        aStyle = { Color(0xD9, 0x77, 0x06), Color(0xFF, 0xFB, 0xEB), Color(0xFD, 0xE6, 0x8A) };
+    }
+    else if (rDeckId == u"SdMasterPagesDeck")
+    {
+        nKind = 15;
+        aStyle = { Color(0x4F, 0x46, 0xE5), Color(0xEE, 0xF2, 0xFF), Color(0xC7, 0xD2, 0xFE) };
+    }
+    else if (rDeckId == u"ElementsDeck")
+    {
+        nKind = 16;
+        aStyle = { Color(0x7C, 0x3A, 0xED), Color(0xF5, 0xF3, 0xFF), Color(0xDD, 0xD6, 0xFE) };
+    }
+    else
+    {
+        return nullptr;
+    }
+
+    const double fS = std::max(1.0, static_cast<double>(fScale));
+    const tools::Long nSz = static_cast<tools::Long>(std::lround(24.0 * fS));
+    ScopedVclPtrInstance<VirtualDevice> pVDev(DeviceFormat::WITH_ALPHA);
+    pVDev->SetOutputSizePixel(Size(nSz, nSz), true, true);
+    pVDev->SetAntialiasing(AntialiasingFlags::Enable);
+
+    const double rad = 5.5 * fS;
+    const basegfx::B2DPolygon aTile = basegfx::utils::createPolygonFromRect(
+        basegfx::B2DRectangle(1.0 * fS, 1.0 * fS, 23.0 * fS, 23.0 * fS),
+        std::min(1.0, (2.0 * rad) / (22.0 * fS)),
+        std::min(1.0, (2.0 * rad) / (22.0 * fS)));
+    pVDev->SetLineColor();
+    pVDev->SetFillColor(aStyle.aTileBg);
+    pVDev->DrawPolygon(aTile);
+    pVDev->SetFillColor();
+    pVDev->SetLineColor(aStyle.aTileBorder);
+    pVDev->DrawPolyLine(aTile, 1.0 * fS, basegfx::B2DLineJoin::Round);
+
+    const double cx = 12.0 * fS;
+    const double cy = 12.0 * fS;
+    const double sw = 1.75 * fS;
+    const Color c = aStyle.aFg;
+
+    switch (nKind)
+    {
+        case 0: // PropertyDeck: sliders
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy - 4 * fS }, { cx + 6 * fS, cy - 4 * fS } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy }, { cx + 6 * fS, cy } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy + 4 * fS }, { cx + 6 * fS, cy + 4 * fS } }, false, c, sw);
+            DrawCircle(*pVDev, cx - 2 * fS, cy - 4 * fS, 1.8 * fS, c, sw, true);
+            DrawCircle(*pVDev, cx + 2.5 * fS, cy, 1.8 * fS, c, sw, true);
+            DrawCircle(*pVDev, cx - 1 * fS, cy + 4 * fS, 1.8 * fS, c, sw, true);
+            break;
+        case 1: // StyleListDeck: bold 'A' + style lines
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy + 2.5 * fS }, { cx - 2.0 * fS, cy - 6.0 * fS }, { cx + 1.5 * fS, cy + 2.5 * fS } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 4.3 * fS, cy - 0.5 * fS }, { cx + 0.3 * fS, cy - 0.5 * fS } }, false, c, 1.5 * fS);
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy + 5.8 * fS }, { cx + 6.0 * fS, cy + 5.8 * fS } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx + 2.5 * fS, cy - 3.5 * fS }, { cx + 6.0 * fS, cy - 3.5 * fS } }, false, c, 1.5 * fS);
+            DrawPoly(*pVDev, { { cx + 2.5 * fS, cy + 0.5 * fS }, { cx + 6.0 * fS, cy + 0.5 * fS } }, false, c, 1.5 * fS);
+            break;
+        case 2: // GalleryDeck: mountain + sun frame
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy - 5 * fS }, { cx + 6 * fS, cy - 5 * fS }, { cx + 6 * fS, cy + 5 * fS }, { cx - 6 * fS, cy + 5 * fS } }, true, c, sw);
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy + 4.5 * fS }, { cx - 1.5 * fS, cy - 0.5 * fS }, { cx + 1.5 * fS, cy + 2.5 * fS }, { cx + 3.5 * fS, cy + 0.5 * fS }, { cx + 5.5 * fS, cy + 4.5 * fS } }, false, c, 1.5 * fS);
+            DrawCircle(*pVDev, cx + 2.8 * fS, cy - 2.3 * fS, 1.2 * fS, c, sw, true);
+            break;
+        case 3: // NavigatorDeck: compass
+            DrawCircle(*pVDev, cx, cy, 6.2 * fS, c, sw);
+            DrawPoly(*pVDev, { { cx - 2.8 * fS, cy + 2.8 * fS }, { cx - 0.8 * fS, cy - 0.8 * fS }, { cx + 2.8 * fS, cy - 2.8 * fS }, { cx + 0.8 * fS, cy + 0.8 * fS } }, true, c, 1.5 * fS);
+            break;
+        case 4: // WriterPageDeck: folded page
+            DrawPoly(*pVDev, { { cx - 4.5 * fS, cy - 6 * fS }, { cx + 1.5 * fS, cy - 6 * fS }, { cx + 4.5 * fS, cy - 3 * fS }, { cx + 4.5 * fS, cy + 6 * fS }, { cx - 4.5 * fS, cy + 6 * fS } }, true, c, sw);
+            DrawPoly(*pVDev, { { cx + 1.5 * fS, cy - 6 * fS }, { cx + 1.5 * fS, cy - 3 * fS }, { cx + 4.5 * fS, cy - 3 * fS } }, false, c, 1.4 * fS);
+            break;
+        case 5: // InspectorDeck: magnifier + inner lines
+        case 10: // FindDeck: magnifier
+            DrawCircle(*pVDev, cx - 1.5 * fS, cy - 1.5 * fS, 4.5 * fS, c, sw);
+            DrawPoly(*pVDev, { { cx + 1.8 * fS, cy + 1.8 * fS }, { cx + 5.8 * fS, cy + 5.8 * fS } }, false, c, 2.0 * fS);
+            if (nKind == 5)
+                DrawPoly(*pVDev, { { cx - 3.2 * fS, cy - 1.5 * fS }, { cx + 0.2 * fS, cy - 1.5 * fS } }, false, c, 1.4 * fS);
+            break;
+        case 6: // SwManageChangesDeck: tracked edit lines + dot
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy - 4 * fS }, { cx + 5.5 * fS, cy - 4 * fS } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy }, { cx + 1.5 * fS, cy } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy + 4 * fS }, { cx + 5.5 * fS, cy + 4 * fS } }, false, c, sw);
+            DrawCircle(*pVDev, cx + 4.5 * fS, cy, 1.6 * fS, c, sw, true);
+            break;
+        case 7: // SwDesignDeck: swatch/palette frame
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy - 5.5 * fS }, { cx + 5.5 * fS, cy - 5.5 * fS }, { cx + 5.5 * fS, cy + 5.5 * fS }, { cx - 5.5 * fS, cy + 5.5 * fS } }, true, c, sw);
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy - 1.5 * fS }, { cx + 5.5 * fS, cy - 1.5 * fS } }, false, c, 1.5 * fS);
+            DrawPoly(*pVDev, { { cx - 1.5 * fS, cy - 1.5 * fS }, { cx - 1.5 * fS, cy + 5.5 * fS } }, false, c, 1.5 * fS);
+            break;
+        case 8: // A11yCheckDeck: check in circle
+            DrawCircle(*pVDev, cx, cy, 6.2 * fS, c, sw);
+            DrawPoly(*pVDev, { { cx - 3 * fS, cy }, { cx - 0.8 * fS, cy + 2.5 * fS }, { cx + 3.5 * fS, cy - 2.5 * fS } }, false, c, sw);
+            break;
+        case 9: // CommentsDeck: speech bubble
+            DrawPoly(*pVDev, {
+                { cx - 6 * fS, cy - 4.5 * fS }, { cx + 6 * fS, cy - 4.5 * fS },
+                { cx + 6 * fS, cy + 2.5 * fS }, { cx - 0.5 * fS, cy + 2.5 * fS },
+                { cx - 3.5 * fS, cy + 5.5 * fS }, { cx - 3.5 * fS, cy + 2.5 * fS },
+                { cx - 6 * fS, cy + 2.5 * fS }
+            }, true, c, sw);
+            break;
+        case 11: // ScFunctionsDeck: "fx"
+        {
+            vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
+            aFont.SetFamilyName(u"Segoe UI"_ustr);
+            aFont.SetFontHeight(static_cast<tools::Long>(std::lround(12.0 * fS)));
+            aFont.SetWeight(WEIGHT_BOLD);
+            aFont.SetTransparent(true);
+            pVDev->SetFont(aFont);
+            pVDev->SetTextColor(c);
+            pVDev->DrawText(tools::Rectangle(Point(0, 0), Size(nSz, nSz)), u"fx"_ustr, DrawTextFlags::Center | DrawTextFlags::VCenter);
+            break;
+        }
+        case 12: // ShapesDeck: circle + square + triangle
+            DrawCircle(*pVDev, cx - 3 * fS, cy - 2.8 * fS, 2.8 * fS, c, 1.6 * fS);
+            DrawPoly(*pVDev, { { cx + 0.5 * fS, cy - 5.2 * fS }, { cx + 5.8 * fS, cy - 5.2 * fS }, { cx + 5.8 * fS, cy + 0.1 * fS }, { cx + 0.5 * fS, cy + 0.1 * fS } }, true, c, 1.6 * fS);
+            DrawPoly(*pVDev, { { cx - 0.5 * fS, cy + 5.8 * fS }, { cx + 2.8 * fS, cy + 0.8 * fS }, { cx + 6.0 * fS, cy + 5.8 * fS } }, true, c, 1.6 * fS);
+            break;
+        case 13: // SdSlideTransitionDeck: slide + motion lines
+            DrawPoly(*pVDev, { { cx - 2.5 * fS, cy - 4.5 * fS }, { cx + 6 * fS, cy - 4.5 * fS }, { cx + 6 * fS, cy + 4.5 * fS }, { cx - 2.5 * fS, cy + 4.5 * fS } }, true, c, sw);
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy - 3 * fS }, { cx - 4 * fS, cy - 3 * fS } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 6.5 * fS, cy }, { cx - 4 * fS, cy } }, false, c, sw);
+            DrawPoly(*pVDev, { { cx - 6 * fS, cy + 3 * fS }, { cx - 4 * fS, cy + 3 * fS } }, false, c, sw);
+            break;
+        case 14: // SdCustomAnimationDeck: 4-point star
+            DrawPoly(*pVDev, {
+                { cx, cy - 6.5 * fS }, { cx + 1.8 * fS, cy - 1.8 * fS },
+                { cx + 6.5 * fS, cy }, { cx + 1.8 * fS, cy + 1.8 * fS },
+                { cx, cy + 6.5 * fS }, { cx - 1.8 * fS, cy + 1.8 * fS },
+                { cx - 6.5 * fS, cy }, { cx - 1.8 * fS, cy - 1.8 * fS }
+            }, true, c, 1.6 * fS);
+            break;
+        case 15: // SdMasterPagesDeck: overlapping stacked slides
+            DrawPoly(*pVDev, { { cx - 5.5 * fS, cy - 5 * fS }, { cx + 3.5 * fS, cy - 5 * fS }, { cx + 3.5 * fS, cy + 2 * fS }, { cx - 5.5 * fS, cy + 2 * fS } }, true, c, 1.6 * fS);
+            DrawPoly(*pVDev, { { cx - 2.5 * fS, cy + 5 * fS }, { cx + 5.5 * fS, cy + 5 * fS }, { cx + 5.5 * fS, cy - 2 * fS } }, false, c, 1.6 * fS);
+            break;
+        case 16: // ElementsDeck: Sigma
+            DrawPoly(*pVDev, {
+                { cx + 4.5 * fS, cy - 5.5 * fS }, { cx - 4.5 * fS, cy - 5.5 * fS },
+                { cx + 0.8 * fS, cy }, { cx - 4.5 * fS, cy + 5.5 * fS },
+                { cx + 4.5 * fS, cy + 5.5 * fS }
+            }, false, c, sw);
+            break;
+    }
+
+    return Graphic(pVDev->GetBitmap(Point(0, 0), Size(nSz, nSz))).GetXGraphic();
+}
+} // namespace
+
 css::uno::Reference<css::graphic::XGraphic> TabBar::GetItemImage(const DeckDescriptor& rDeckDescriptor) const
 {
+    if (!Theme::IsHighContrastMode())
+    {
+        if (auto xCustom = MakeColorfulDeckGraphic(rDeckDescriptor.msId, GetDPIScaleFactor()))
+            return xCustom;
+    }
     return Tools::GetImage(
         rDeckDescriptor.msIconURL,
         rDeckDescriptor.msHighContrastIconURL,

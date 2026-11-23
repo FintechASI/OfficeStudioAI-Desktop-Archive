@@ -1050,7 +1050,7 @@ void Window::ImplInit( vcl::Window* pParent, WinBits nStyle, SystemParentData* p
             nFrameStyle |= SalFrameStyleFlags::NOICON;
 
         SalFrame* pParentFrame = nullptr;
-        if ( pParent )
+        if ( pParent && pParent->mpWindowImpl )
             pParentFrame = pParent->mpWindowImpl->mpFrame;
         SalFrame* pFrame;
         if ( pSystemParentData )
@@ -1087,12 +1087,15 @@ void Window::ImplInit( vcl::Window* pParent, WinBits nStyle, SystemParentData* p
     mpWindowImpl->mpRealParent = pRealParent;
 
     // #99318: make sure fontcache and list is available before call to SetSettings
-    mpWindowImpl->mxOutDev->mxFontCollection = mpWindowImpl->mpFrameData->mxFontCollection;
-    mpWindowImpl->mxOutDev->mxFontCache = mpWindowImpl->mpFrameData->mxFontCache;
+    if ( mpWindowImpl->mpFrameData )
+    {
+        mpWindowImpl->mxOutDev->mxFontCollection = mpWindowImpl->mpFrameData->mxFontCollection;
+        mpWindowImpl->mxOutDev->mxFontCache = mpWindowImpl->mpFrameData->mxFontCache;
+    }
 
     if ( mpWindowImpl->mbFrame )
     {
-        if ( pParent )
+        if ( pParent && pParent->mpWindowImpl && pParent->mpWindowImpl->mpFrameData )
         {
             mpWindowImpl->mpFrameData->mnDPIX     = pParent->mpWindowImpl->mpFrameData->mnDPIX;
             mpWindowImpl->mpFrameData->mnDPIY     = pParent->mpWindowImpl->mpFrameData->mnDPIY;
@@ -1139,7 +1142,7 @@ void Window::ImplInit( vcl::Window* pParent, WinBits nStyle, SystemParentData* p
     }
     else
     {
-        if ( pParent )
+        if ( pParent && pParent->mpWindowImpl )
         {
             if ( !ImplIsOverlapWindow() )
             {
@@ -1159,9 +1162,12 @@ void Window::ImplInit( vcl::Window* pParent, WinBits nStyle, SystemParentData* p
     }
 
     // setup the scale factor for HiDPI displays
-    mpWindowImpl->mxOutDev->SetDPIScalePercentage(CountDPIScaleFactor(mpWindowImpl->mpFrameData->mnDPIY));
-    mpWindowImpl->mxOutDev->SetDPIX(mpWindowImpl->mpFrameData->mnDPIX);
-    mpWindowImpl->mxOutDev->SetDPIY(mpWindowImpl->mpFrameData->mnDPIY);
+    if ( mpWindowImpl->mpFrameData )
+    {
+        mpWindowImpl->mxOutDev->SetDPIScalePercentage(CountDPIScaleFactor(mpWindowImpl->mpFrameData->mnDPIY));
+        mpWindowImpl->mxOutDev->SetDPIX(mpWindowImpl->mpFrameData->mnDPIX);
+        mpWindowImpl->mxOutDev->SetDPIY(mpWindowImpl->mpFrameData->mnDPIY);
+    }
 
     if (!comphelper::IsFuzzing())
     {

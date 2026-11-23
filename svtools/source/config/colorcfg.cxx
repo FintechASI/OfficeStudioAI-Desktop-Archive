@@ -42,6 +42,7 @@
 #include <vcl/event.hxx>
 #include <vcl/settings.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/vclevent.hxx>
 #include <officecfg/Office/UI.hxx>
 #include <officecfg/Office/Common.hxx>
@@ -528,7 +529,7 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry, int nMod)
     {
         { COL_WHITE,        Color(0x1C1C1C) }, // DOCCOLOR
         { COL_LIGHTGRAY,    Color(0x808080) }, // DOCBOUNDARIES
-        { Color(0xDFDFDE),  Color(0x333333) }, // APPBACKGROUND
+        { Color(0xF0F2F5),  Color(0x333333) }, // APPBACKGROUND
         { COL_LIGHTGRAY,    Color(0x808080) }, // TABLEBOUNDARIES
         { COL_BLACK,        COL_BLACK       }, // FONTCOLOR
         { COL_BLUE,         Color(0x1D99F3) }, // LINKS
@@ -536,7 +537,7 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry, int nMod)
         { COL_LIGHTRED,     Color(0xC9211E) }, // SPELL
         { COL_LIGHTBLUE,    Color(0x729FCF) }, // GRAMMAR
         { COL_LIGHTMAGENTA, Color(0x780373) }, // SMARTTAGS
-        { COL_GRAY,         Color(0x1C1C1C) }, // SHADOWCOLOR
+        { Color(0xCBD5E1),  Color(0x1C1C1C) }, // SHADOWCOLOR
         { COL_GRAY7,        COL_GRAY7       }, // WRITERTEXTGRID
         { COL_GRAY7,        COL_GRAY7       }, // WRITERBASELINEGRID
         { COL_LIGHTGRAY,    COL_LIGHTGRAY   }, // WRITERFIELDSHADING
@@ -550,7 +551,7 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry, int nMod)
         { COL_LIGHTGREEN,   COL_LIGHTGREEN  }, // HTMLCOMMENT
         { COL_LIGHTRED,     COL_LIGHTRED    }, // HTMLKEYWORD
         { COL_GRAY,         COL_GRAY        }, // HTMLUNKNOWN
-        { COL_GRAY3,        COL_GRAY7       }, // CALCGRID
+        { Color(0xD9D9D9),  COL_GRAY7       }, // CALCGRID
         { COL_LIGHTBLUE,    COL_LIGHTBLUE   }, // CALCCELLFOCUS
         { COL_LIGHTGRAYBLUE, COL_LIGHTGRAYBLUE }, // CALCDBFOCUS
         { COL_BLUE,         COL_BLUE        }, // CALCPAGEBREAK
@@ -609,12 +610,15 @@ Color ColorConfig::GetDefaultColor(ColorConfigEntry eEntry, int nMod)
             break;
 
         case CALCCELLFOCUS:
-            aRet = Application::GetSettings().GetStyleSettings().GetAccentColor();
-            break;
-
         case CALCDBFOCUS:
-            aRet = Application::GetSettings().GetStyleSettings().GetAccentColor();
+        {
+            const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
+            if (vcl::officestudio::IsLightTheme(rStyle) && !ThemeColors::IsThemeEnabled())
+                aRet = vcl::officestudio::CalcAccent;
+            else
+                aRet = rStyle.GetAccentColor();
             break;
+        }
 
         default:
             int nAppMod;

@@ -21,9 +21,19 @@
 #include <vcl/builderfactory.hxx>
 #include <vcl/commandevent.hxx>
 #include <vcl/layout.hxx>
+#include <vcl/mnemonic.hxx>
 #include <vcl/notebookbar/notebookbar.hxx>
+#include <vcl/svapp.hxx>
 #include <vcl/tabpage.hxx>
+#include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <vcl/weld/weldutils.hxx>
+#include <sfx2/app.hxx>
+#include <sfx2/event.hxx>
+#include <sfx2/objsh.hxx>
 #include <sfx2/viewfrm.hxx>
+#include <commandpopup/CommandPopup.hxx>
+#include <notebookbar/CalcBackstageView.hxx>
 #include <notebookbar/NotebookbarTabControl.hxx>
 #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
 #include <com/sun/star/ui/ItemType.hpp>
@@ -34,13 +44,14 @@
 #include <com/sun/star/awt/PopupMenuDirection.hpp>
 #include <com/sun/star/awt/XVclWindowPeer.hpp>
 #include <com/sun/star/frame/XPopupMenuController.hpp>
+#include <comphelper/dispatchcommand.hxx>
 #include <comphelper/processfactory.hxx>
 #include <comphelper/propertyvalue.hxx>
 #include <sidebar/SidebarToolBox.hxx>
 #include <toolkit/awt/vclxmenu.hxx>
 #include <cppuhelper/implbase.hxx>
 
-#define ICON_SIZE 25
+#define ICON_SIZE 22
 constexpr OUString TOOLBAR_STR = u"private:resource/toolbar/notebookbarshortcuts"_ustr;
 
 using namespace css::uno;
@@ -159,6 +170,18 @@ NotebookbarTabControl::NotebookbarTabControl( Window* pParent )
 
 NotebookbarTabControl::~NotebookbarTabControl()
 {
+    disposeOnce();
+}
+
+void NotebookbarTabControl::dispose()
+{
+    EndListeningAll();
+    if (m_pHostBorderWin && !m_pHostBorderWin->isDisposed())
+        m_pHostBorderWin->RemoveEventListener(LINK(this, NotebookbarTabControl, BorderWinEventHdl));
+    m_pHostBorderWin.reset();
+    m_pBackstage.disposeAndClear();
+    m_pCommandPopup.reset();
+    NotebookbarTabControlBase::dispose();
 }
 
 void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
@@ -254,6 +277,20 @@ bool NotebookbarTabControl::EventNotify( NotifyEvent& rNEvt )
     {
         const vcl::KeyCode& rKey = rNEvt.GetKeyEvent()->GetKeyCode();
         sal_uInt16 nCode = rKey.GetCode();
+        if (m_bIsCalc && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+            && !ThemeColors::IsThemeEnabled())
+        {
+            if (rKey.IsMod2() && nCode == KEY_Q)
+            {
+                OpenHeaderSearch();
+                return true;
+            }
+            if (nCode == KEY_ESCAPE && IsBackstageOpen())
+            {
+                CloseBackstage();
+                return true;
+            }
+        }
         if ( rKey.IsMod1() && ( nCode == KEY_RIGHT || nCode == KEY_LEFT ) )
         {
             ArrowStops( nCode );
@@ -261,6 +298,13 @@ bool NotebookbarTabControl::EventNotify( NotifyEvent& rNEvt )
         }
     }
     return NotebookbarTabControlBase::EventNotify( rNEvt );
+}
+
+void NotebookbarTabControl::Resize()
+{
+    NotebookbarTabControlBase::Resize();
+    if (IsBackstageOpen())
+        LayoutBackstage();
 }
 
 void NotebookbarTabControl::StateChanged(StateChangedType nStateChange)
@@ -290,8 +334,44 @@ void NotebookbarTabControl::StateChanged(StateChangedType nStateChange)
         const Reference<XModuleManager> xModuleManager  = ModuleManager::create( xContext );
         m_xFrame = pViewFrm->GetFrame().GetFrameInterface();
         OUString aModuleName = xModuleManager->identify( m_xFrame );
+        m_bIsCalc = (aModuleName == u"com.sun.star.sheet.SpreadsheetDocument"_ustr);
 
         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
+
+        if (m_bIsCalc && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+            && !ThemeColors::IsThemeEnabled())
+        {
+            pToolBox->SetControlBackground(vcl::officestudio::CalcTopHeaderBg);
+            SetFileTabClickHdl(LINK(this, NotebookbarTabControl, OnFileTabClick));
+            SetSearchClickHdl(LINK(this, NotebookbarTabControl, OnSearchClick));
+            SetTitleClickHdl(LINK(this, NotebookbarTabControl, OnTitleClick));
+            SetActivatePageHdl(LINK(this, NotebookbarTabControl, OnActivateTabPage));
+            const sal_uInt16 nCurPage = GetCurPageId();
+            if (nCurPage)
+            {
+                const OUString sCurClean = removeMnemonicFromString(GetPageText(nCurPage));
+                if (!sCurClean.equalsIgnoreAsciiCase(u"File"))
+                    m_nLastNonFilePageId = nCurPage;
+                else if (GetPageCount() > 1)
+                    m_nLastNonFilePageId = GetPageId(1);
+            }
+            else if (GetPageCount() > 1)
+            {
+                m_nLastNonFilePageId = GetPageId(1);
+            }
+            if (SfxApplication* pApp = SfxGetpApp())
+            {
+                if (!IsListening(*pApp))
+                    StartListening(*pApp);
+            }
+            if (!m_pHostBorderWin)
+            {
+                m_pHostBorderWin = GetHostBorderWindow();
+                if (m_pHostBorderWin)
+                    m_pHostBorderWin->AddEventListener(LINK(this, NotebookbarTabControl, BorderWinEventHdl));
+            }
+            UpdateDocumentTitle();
+        }
 
         Size aSize( pToolBox->GetOptimalSize() );
         Point aPos( ICON_SIZE + 10, 0 );
@@ -301,6 +381,228 @@ void NotebookbarTabControl::StateChanged(StateChangedType nStateChange)
         m_bInvalidate = false;
     }
     NotebookbarTabControlBase::StateChanged( nStateChange );
+}
+
+vcl::Window* NotebookbarTabControl::GetHostBorderWindow() const
+{
+    for (vcl::Window* pWin = GetParent(); pWin != nullptr; pWin = pWin->GetParent())
+    {
+        if (dynamic_cast<const NotebookBar*>(pWin) != nullptr)
+            return pWin->GetParent();
+    }
+    return nullptr;
+}
+
+void NotebookbarTabControl::UpdateDocumentTitle()
+{
+    if (!m_bIsCalc)
+        return;
+
+    SfxObjectShell* pObjSh = nullptr;
+    for (SfxViewFrame* pVF = SfxViewFrame::GetFirst(); pVF != nullptr; pVF = SfxViewFrame::GetNext(*pVF))
+    {
+        if (pVF->GetFrame().GetFrameInterface() == m_xFrame)
+        {
+            pObjSh = pVF->GetObjectShell();
+            break;
+        }
+    }
+    if (!pObjSh)
+    {
+        if (SfxViewFrame* pCur = SfxViewFrame::Current())
+            pObjSh = pCur->GetObjectShell();
+    }
+    if (!pObjSh)
+        return;
+
+    if (!IsListening(*pObjSh))
+        StartListening(*pObjSh);
+
+    OUString sTitle = pObjSh->GetTitle(SFX_TITLE_DETECT);
+    if (sTitle.isEmpty())
+        sTitle = u"Untitled 1"_ustr;
+    SetDocumentTitle(sTitle, pObjSh->IsModified());
+}
+
+void NotebookbarTabControl::LayoutBackstage()
+{
+    if (!m_pBackstage || m_pBackstage->isDisposed())
+        return;
+    vcl::Window* pHost = m_pHostBorderWin ? m_pHostBorderWin.get() : GetHostBorderWindow();
+    if (!pHost)
+        return;
+
+    const tools::Long nStripBottom = GetTabStripBottom();
+    Point aTopPt = pHost->ScreenToOutputPixel(OutputToScreenPixel(Point(0, nStripBottom)));
+    const tools::Long nTopY = std::max<tools::Long>(0, aTopPt.Y());
+    const Size aHostSz = pHost->GetOutputSizePixel();
+    m_pBackstage->SetPosSizePixel(
+        Point(0, nTopY),
+        Size(aHostSz.Width(), std::max<tools::Long>(0, aHostSz.Height() - nTopY)));
+}
+
+void NotebookbarTabControl::OpenBackstage()
+{
+    if (!m_bIsCalc || IsBackstageOpen() || !IsReallyVisible() || Application::IsHeadlessModeEnabled())
+        return;
+
+    vcl::Window* pHost = m_pHostBorderWin ? m_pHostBorderWin.get() : GetHostBorderWindow();
+    if (!pHost)
+        return;
+
+    for (vcl::Window* pCh = pHost->GetWindow(GetWindowType::FirstChild); pCh != nullptr;
+         pCh = pCh->GetWindow(GetWindowType::Next))
+    {
+        pCh->EnableClipSiblings();
+    }
+
+    if (!m_pBackstage || m_pBackstage->isDisposed())
+    {
+        m_pBackstage = VclPtr<CalcBackstageView>::Create(
+            pHost, m_xFrame, LINK(this, NotebookbarTabControl, OnBackstageClose));
+    }
+    else
+    {
+        m_pBackstage->RefreshData();
+    }
+
+    if (TabPage* pCurPage = GetTabPage(GetCurPageId()))
+        pCurPage->Hide();
+
+    LayoutBackstage();
+    m_pBackstage->SetZOrder(nullptr, ZOrderFlags::First);
+    m_pBackstage->Show();
+    m_pBackstage->GrabFocus();
+    SetBackstageOpen(true);
+}
+
+void NotebookbarTabControl::CloseBackstage()
+{
+    if (!IsBackstageOpen())
+        return;
+
+    vcl::Window* pBackstageParent = nullptr;
+    if (m_pBackstage && !m_pBackstage->isDisposed())
+    {
+        pBackstageParent = m_pBackstage->GetParent();
+        m_pBackstage->Hide();
+    }
+
+    SetBackstageOpen(false);
+    if (TabPage* pCurPage = GetTabPage(GetCurPageId()))
+        pCurPage->Show();
+
+    Resize();
+    Invalidate();
+    if (pBackstageParent && !pBackstageParent->isDisposed())
+        pBackstageParent->Invalidate(InvalidateFlags::Children);
+}
+
+void NotebookbarTabControl::OpenHeaderSearch()
+{
+    if (!m_bIsCalc || !m_xFrame.is())
+        return;
+
+    if (IsBackstageOpen())
+        CloseBackstage();
+
+    tools::Rectangle aAnchor = GetSearchBoxRect();
+    if (aAnchor.IsEmpty())
+    {
+        const tools::Long nW = std::min<tools::Long>(360, std::max<tools::Long>(200, GetOutputSizePixel().Width() / 2));
+        aAnchor = tools::Rectangle(Point((GetOutputSizePixel().Width() - nW) / 2, 4), Size(nW, 26));
+    }
+
+    weld::Window* pParent = weld::GetPopupParent(*this, aAnchor);
+    if (!pParent)
+        return;
+
+    if (!m_pCommandPopup)
+        m_pCommandPopup = std::make_unique<CommandPopupHandler>();
+    m_pCommandPopup->showPopupAtRect(pParent, m_xFrame, aAnchor, true);
+}
+
+void NotebookbarTabControl::Notify(SfxBroadcaster&, const SfxHint& rHint)
+{
+    if (!m_bIsCalc)
+        return;
+
+    const SfxHintId nId = rHint.GetId();
+    if (nId == SfxHintId::TitleChanged || nId == SfxHintId::DocChanged)
+    {
+        UpdateDocumentTitle();
+    }
+    else if (nId == SfxHintId::ThisIsAnSfxEventHint)
+    {
+        const SfxEventHintId nEv = static_cast<const SfxEventHint&>(rHint).GetEventId();
+        if (nEv == SfxEventHintId::ModifyChanged || nEv == SfxEventHintId::SaveDocDone
+            || nEv == SfxEventHintId::SaveAsDocDone || nEv == SfxEventHintId::ActivateDoc
+            || nEv == SfxEventHintId::LoadFinished || nEv == SfxEventHintId::DocCreated)
+        {
+            UpdateDocumentTitle();
+        }
+    }
+}
+
+IMPL_LINK_NOARG(NotebookbarTabControl, OnFileTabClick, NotebookbarTabControlBase*, void)
+{
+    if (IsBackstageOpen())
+        CloseBackstage();
+    else
+        OpenBackstage();
+}
+
+IMPL_LINK_NOARG(NotebookbarTabControl, OnSearchClick, NotebookbarTabControlBase*, void)
+{
+    OpenHeaderSearch();
+}
+
+IMPL_LINK_NOARG(NotebookbarTabControl, OnTitleClick, NotebookbarTabControlBase*, void)
+{
+    if (!m_bIsCalc)
+        return;
+
+    SfxObjectShell* pObjSh = SfxObjectShell::Current();
+    if (pObjSh && !pObjSh->HasName())
+        comphelper::dispatchCommand(u".uno:SaveAs"_ustr, {});
+    else
+        comphelper::dispatchCommand(u".uno:SetDocumentProperties"_ustr, {});
+}
+
+IMPL_LINK_NOARG(NotebookbarTabControl, OnBackstageClose, CalcBackstageView*, void)
+{
+    CloseBackstage();
+}
+
+IMPL_LINK_NOARG(NotebookbarTabControl, OnActivateTabPage, TabControl*, void)
+{
+    if (!m_bInitialized || !IsReallyVisible() || !m_bIsCalc
+        || !vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+        || ThemeColors::IsThemeEnabled())
+        return;
+
+    const sal_uInt16 nCurId = GetCurPageId();
+    const OUString sClean = nCurId ? removeMnemonicFromString(GetPageText(nCurId)) : OUString();
+    if (sClean.equalsIgnoreAsciiCase(u"File"))
+    {
+        sal_uInt16 nFallback = m_nLastNonFilePageId;
+        if (!nFallback && GetPageCount() > 1)
+            nFallback = GetPageId(1);
+        if (nFallback && nFallback != nCurId)
+            SetCurPageId(nFallback);
+        OpenBackstage();
+        return;
+    }
+
+    m_nLastNonFilePageId = nCurId;
+    if (IsBackstageOpen())
+        CloseBackstage();
+}
+
+IMPL_LINK(NotebookbarTabControl, BorderWinEventHdl, VclWindowEvent&, rEvent, void)
+{
+    if (rEvent.GetId() == VclEventId::WindowResize && IsBackstageOpen())
+        LayoutBackstage();
 }
 
 void NotebookbarTabControl::FillShortcutsToolBox(Reference<XComponentContext> const & xContext,

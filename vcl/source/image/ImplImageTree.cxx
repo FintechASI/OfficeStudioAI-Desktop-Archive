@@ -58,6 +58,8 @@
 #include <vcl/outdev.hxx>
 #include <vcl/filter/PngImageWriter.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <OfficeStudioIcons.hxx>
 #include <o3tl/string_view.hxx>
 #include <bitmap/BitmapLightenFilter.hxx>
 
@@ -433,6 +435,39 @@ bool ImplImageTree::doLoadImage(ImageRequestParameters& rParameters)
 
     if (iconCacheLookup(rParameters))
         return true;
+
+    const StyleSettings& rStyleSettings = Application::GetSettings().GetStyleSettings();
+    const bool bLightIcons = !rStyleSettings.GetHighContrastMode()
+                             && !rStyleSettings.GetWindowColor().IsDark()
+                             && !rParameters.convertToDarkTheme()
+                             && !rParameters.msStyle.endsWith("_dark")
+                             && !rParameters.msStyle.endsWith("_dark_svg");
+    if (bLightIcons)
+    {
+        const sal_Int32 nScalePct = rParameters.scalePercentage();
+        bool bRendered = vcl::officestudio::TryRenderCommandIcon(
+            rParameters.msName, nScalePct, rParameters.mrBitmap);
+        if (!bRendered && maIconSets.find(maCurrentStyle) != maIconSets.end())
+        {
+            const OUString& rRealName = getRealImageName(rParameters.msName);
+            if (rRealName != rParameters.msName)
+            {
+                bRendered = vcl::officestudio::TryRenderCommandIcon(
+                    rRealName, nScalePct, rParameters.mrBitmap);
+            }
+        }
+        if (bRendered)
+        {
+            if (maIconSets.find(maCurrentStyle) != maIconSets.end())
+            {
+                IconCache& rCache = getIconCache(rParameters);
+                rCache[rParameters.msName] = std::make_pair(rParameters.mbLocalized, rParameters.mrBitmap);
+                rCache[getRealImageName(rParameters.msName)]
+                    = std::make_pair(rParameters.mbLocalized, rParameters.mrBitmap);
+            }
+            return true;
+        }
+    }
 
     OUString aVariant = createVariant(rParameters);
     if (loadDiskCachedVersion(aVariant, rParameters))

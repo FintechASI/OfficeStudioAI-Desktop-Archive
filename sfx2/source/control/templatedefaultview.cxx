@@ -37,16 +37,16 @@ TemplateDefaultView::TemplateDefaultView(std::unique_ptr<weld::ScrolledWindow> x
     UpdateColors(Application::GetSettings().GetStyleSettings());
 }
 
-void TemplateDefaultView::UpdateColors(const StyleSettings& rSettings)
+void TemplateDefaultView::UpdateColors(const StyleSettings& /*rSettings*/)
 {
-    TemplateLocalView::UpdateColors(rSettings);
+    TemplateLocalView::UpdateColors(Application::GetSettings().GetStyleSettings());
 
-    // startcenter specific settings
-    maFillColor = Color(ColorTransparency, officecfg::Office::Common::Help::StartCenter::StartCenterThumbnailsBackgroundColor::get());
-    maTextColor = Color(ColorTransparency, officecfg::Office::Common::Help::StartCenter::StartCenterThumbnailsTextColor::get());
+    // Keep Templates consistent with OfficeStudio AI Start Center light theme
+    maFillColor = Color(0xFF, 0xFF, 0xFF);
+    maTextColor = Color(0x0F, 0x1F, 0x3D);
 
-    maHighlightColor = rSettings.GetHighlightColor();
-    maHighlightTextColor = rSettings.GetHighlightTextColor();
+    maHighlightColor = Color(0xDB, 0xEA, 0xFE);
+    maHighlightTextColor = Color(0x0F, 0x1F, 0x3D);
 }
 
 void TemplateDefaultView::showAllTemplates()

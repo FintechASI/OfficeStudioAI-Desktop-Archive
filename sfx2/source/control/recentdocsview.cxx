@@ -18,12 +18,17 @@
  */
 
 #include <sal/log.hxx>
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <cmath>
 #include <comphelper/DirectoryHelper.hxx>
 #include <recentdocsview.hxx>
 #include <sfx2/sfxresid.hxx>
 #include <unotools/historyoptions.hxx>
 #include <vcl/event.hxx>
 #include <vcl/ptrstyle.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
+#include <vcl/rendercontext/DrawTextFlags.hxx>
 #include <vcl/svapp.hxx>
 #include <tools/urlobj.hxx>
 #include <com/sun/star/frame/XDispatch.hpp>
@@ -66,6 +71,7 @@ RecentDocsView::RecentDocsView(std::unique_ptr<weld::ScrolledWindow> xWindow)
     , maWelcomeLine2(SfxResId(STR_WELCOME_LINE2))
     , mpLoadRecentFile(nullptr)
     , m_nExecuteHdlId(nullptr)
+    , mbHasAnyHistory(false)
 {
     mbAllowMultiSelection = false;
     AbsoluteScreenPixelRectangle aScreen = Application::GetScreenPosSizePixel(Application::GetDisplayBuiltInScreen());
@@ -74,7 +80,7 @@ RecentDocsView::RecentDocsView(std::unique_ptr<weld::ScrolledWindow> xWindow)
     setItemMaxTextLength( 30 );
     setItemDimensions( mnItemMaxSize, mnItemMaxSize, gnTextHeight, gnItemPadding );
 
-    mfHighlightTransparence = 0.75;
+    mfHighlightTransparence = 0.25;
 
     UpdateColors(Application::GetSettings().GetStyleSettings());
 }
@@ -94,11 +100,11 @@ void RecentDocsView::UpdateColors(const StyleSettings& rSettings)
 {
     ThumbnailView::UpdateColors(rSettings);
 
-    maFillColor = Color(ColorTransparency, officecfg::Office::Common::Help::StartCenter::StartCenterThumbnailsBackgroundColor::get());
-    maTextColor = Color(ColorTransparency, officecfg::Office::Common::Help::StartCenter::StartCenterThumbnailsTextColor::get());
+    maFillColor = Color(0xFF, 0xFF, 0xFF);
+    maTextColor = Color(0x0F, 0x1F, 0x3D);
 
-    maHighlightColor = rSettings.GetHighlightColor();
-    maHighlightTextColor = rSettings.GetHighlightTextColor();
+    maHighlightColor = Color(0xDB, 0xEA, 0xFE);
+    maHighlightTextColor = Color(0x0F, 0x1F, 0x3D);
 }
 
 bool RecentDocsView::typeMatchesExtension(ApplicationType type, std::u16string_view rExt)
@@ -164,6 +170,7 @@ void RecentDocsView::Reload()
     Clear();
 
     std::vector< SvtHistoryOptions::HistoryItem > aHistoryList = SvtHistoryOptions::GetList( EHistoryType::PickList );
+    mbHasAnyHistory = !aHistoryList.empty();
     for ( size_t i = 0; i < aHistoryList.size(); i++ )
     {
         const SvtHistoryOptions::HistoryItem& rRecentEntry = aHistoryList[i];
@@ -265,34 +272,126 @@ void RecentDocsView::Paint(vcl::RenderContext& rRenderContext, const tools::Rect
     if (!mItemList.empty())
         return;
 
-    if (maWelcomeImage.IsEmpty())
+    auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
+    rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+
+    const Size& rSize = GetOutputSizePixel();
+    const double fS = std::max(1.0, static_cast<double>(rRenderContext.GetDPIScaleFactor()));
+    auto sx = [fS](tools::Long nPx) -> tools::Long {
+        return static_cast<tools::Long>(std::lround(static_cast<double>(nPx) * fS));
+    };
+
+    const OUString sHeading = mbHasAnyHistory
+        ? u"No matching recent files"_ustr
+        : u"No recent files yet"_ustr;
+
+    OUString sBody;
+    if (!mbHasAnyHistory)
     {
-        const tools::Long aWidth(aRect.GetWidth() > aRect.getOpenHeight() ? aRect.GetHeight()/2 : aRect.GetWidth()/2);
-        maWelcomeImage = SfxApplication::GetApplicationLogo(aWidth);
+        sBody = u"Documents you create or open will appear here for quick access."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_WRITER)
+    {
+        sBody = u"No Docs files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_CALC)
+    {
+        sBody = u"No Spreadsheets files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_IMPRESS)
+    {
+        sBody = u"No SlideShows files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_DRAW)
+    {
+        sBody = u"No Design files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_DATABASE)
+    {
+        sBody = u"No Database files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else if (mnFileTypes == ApplicationType::TYPE_MATH)
+    {
+        sBody = u"No Math files appear in your recent history. Select All Documents in Filter to view everything."_ustr;
+    }
+    else
+    {
+        sBody = u"No recent files match the active filter. Select All Documents in Filter to view everything."_ustr;
     }
 
-    // No recent files to be shown yet. Show a welcome screen.
-    auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
-    SetMessageFont(rRenderContext);
-    rRenderContext.SetTextColor(maTextColor);
+    const tools::Long nCardW = std::max<tools::Long>(180, std::min<tools::Long>(sx(440), rSize.Width() - sx(48)));
+    const tools::Long nCardH = std::max<tools::Long>(120, std::min<tools::Long>(sx(214), rSize.Height() - sx(32)));
+    const tools::Long nCardX = (rSize.Width() - nCardW) / 2;
+    const tools::Long nCardY = (rSize.Height() - nCardH) / 2;
 
-    tools::Long nTextHeight = rRenderContext.GetTextHeight();
+    if (rSize.Width() >= sx(240) && rSize.Height() >= sx(150))
+    {
+        const double w = static_cast<double>(nCardW);
+        const double h = static_cast<double>(nCardH);
+        const double rad = 10.0 * fS;
+        const basegfx::B2DPolygon aCardPoly = basegfx::utils::createPolygonFromRect(
+            basegfx::B2DRectangle(nCardX, nCardY, nCardX + nCardW, nCardY + nCardH),
+            std::min(1.0, (2.0 * rad) / std::max(1.0, w)),
+            std::min(1.0, (2.0 * rad) / std::max(1.0, h)));
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(Color(0xF8, 0xFA, 0xFC));
+        rRenderContext.DrawPolygon(aCardPoly);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(Color(0xDC, 0xE3, 0xED));
+        rRenderContext.DrawPolyLine(aCardPoly, 1.2 * fS, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+    }
 
-    const Size aImgSize = maWelcomeImage.GetSizePixel();
-    const Size& rSize = GetOutputSizePixel();
+    const double fCx = static_cast<double>(rSize.Width()) * 0.5;
+    const double fBadgeCy = static_cast<double>(nCardY + sx(52));
+    const double fBadgeR = 24.0 * fS;
+    const basegfx::B2DPolygon aBadge = basegfx::utils::createPolygonFromCircle(basegfx::B2DPoint(fCx, fBadgeCy), fBadgeR);
+    rRenderContext.SetLineColor();
+    rRenderContext.SetFillColor(Color(0xED, 0xF1, 0xF6));
+    rRenderContext.DrawPolygon(aBadge);
 
-    const int nX = (rSize.Width() - aImgSize.Width())/2;
-    int nY = (rSize.Height() - 3 * nTextHeight - aImgSize.Height())/2;
-    Point aImgPoint(nX, nY);
-    rRenderContext.DrawBitmap(aImgPoint, aImgSize, maWelcomeImage);
+    const Color aIconCol = mbHasAnyHistory ? Color(0x1A, 0x63, 0xD8) : Color(0x10, 0x23, 0x42);
+    rRenderContext.SetFillColor();
+    rRenderContext.SetLineColor(aIconCol);
+    if (!mbHasAnyHistory)
+    {
+        const basegfx::B2DPolygon aRing = basegfx::utils::createPolygonFromCircle(basegfx::B2DPoint(fCx, fBadgeCy), 10.5 * fS);
+        rRenderContext.DrawPolyLine(aRing, 1.8 * fS, basegfx::B2DLineJoin::Round);
+        basegfx::B2DPolygon aHands;
+        aHands.append(basegfx::B2DPoint(fCx, fBadgeCy - 5.5 * fS));
+        aHands.append(basegfx::B2DPoint(fCx, fBadgeCy));
+        aHands.append(basegfx::B2DPoint(fCx + 4.5 * fS, fBadgeCy + 2.5 * fS));
+        rRenderContext.DrawPolyLine(aHands, 1.8 * fS, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+    }
+    else
+    {
+        basegfx::B2DPolygon aFunnel;
+        aFunnel.append(basegfx::B2DPoint(fCx - 9.0 * fS, fBadgeCy - 6.5 * fS));
+        aFunnel.append(basegfx::B2DPoint(fCx + 9.0 * fS, fBadgeCy - 6.5 * fS));
+        aFunnel.append(basegfx::B2DPoint(fCx + 2.5 * fS, fBadgeCy + 1.0 * fS));
+        aFunnel.append(basegfx::B2DPoint(fCx + 2.5 * fS, fBadgeCy + 8.0 * fS));
+        aFunnel.append(basegfx::B2DPoint(fCx - 2.5 * fS, fBadgeCy + 6.0 * fS));
+        aFunnel.append(basegfx::B2DPoint(fCx - 2.5 * fS, fBadgeCy + 1.0 * fS));
+        aFunnel.setClosed(true);
+        rRenderContext.DrawPolyLine(aFunnel, 1.7 * fS, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+    }
 
-    nY = nY + aImgSize.Height();
-    rRenderContext.DrawText(tools::Rectangle(0, nY + 1 * nTextHeight, rSize.Width(), nY + nTextHeight),
-                            maWelcomeLine1,
-                            DrawTextFlags::Center);
-    rRenderContext.DrawText(tools::Rectangle(0, nY + 2 * nTextHeight, rSize.Width(), rSize.Height()),
-                            maWelcomeLine2,
-                            DrawTextFlags::MultiLine | DrawTextFlags::WordBreak | DrawTextFlags::Center);
+    vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
+    aFont.SetFamilyName(u"Segoe UI"_ustr);
+    aFont.SetTransparent(true);
+
+    aFont.SetFontHeight(sx(16));
+    aFont.SetWeight(WEIGHT_BOLD);
+    rRenderContext.SetFont(aFont);
+    rRenderContext.SetTextColor(Color(0x0F, 0x1F, 0x3D));
+    rRenderContext.DrawText(tools::Rectangle(Point(nCardX + sx(24), nCardY + sx(88)), Size(std::max<tools::Long>(60, nCardW - sx(48)), sx(30))),
+                            sHeading, DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+
+    aFont.SetFontHeight(sx(13));
+    aFont.SetWeight(WEIGHT_NORMAL);
+    rRenderContext.SetFont(aFont);
+    rRenderContext.SetTextColor(Color(0x55, 0x65, 0x7D));
+    rRenderContext.DrawText(tools::Rectangle(Point(nCardX + sx(28), nCardY + sx(122)), Size(std::max<tools::Long>(60, nCardW - sx(56)), std::max<tools::Long>(24, nCardH - sx(138)))),
+                            sBody, DrawTextFlags::MultiLine | DrawTextFlags::WordBreak | DrawTextFlags::Center);
 }
 
 void RecentDocsView::LoseFocus()

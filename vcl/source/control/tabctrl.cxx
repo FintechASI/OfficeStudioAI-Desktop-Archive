@@ -19,6 +19,9 @@
 
 #include <sal/config.h>
 
+#include <basegfx/polygon/b2dpolygon.hxx>
+#include <basegfx/polygon/b2dpolygontools.hxx>
+#include <basegfx/range/b2drectangle.hxx>
 #include <tools/json_writer.hxx>
 #include <tools/mapunit.hxx>
 #include <vcl/builder.hxx>
@@ -30,6 +33,9 @@
 #include <vcl/tabctrl.hxx>
 #include <vcl/tabpage.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <vcl/ptrstyle.hxx>
+#include <vcl/rendercontext/AntialiasingFlags.hxx>
 #include <vcl/toolbox.hxx>
 #include <vcl/toolkit/button.hxx>
 #include <vcl/menu.hxx>
@@ -41,6 +47,8 @@
 #include <svdata.hxx>
 #include <window.h>
 
+#include <algorithm>
+#include <cmath>
 #include <deque>
 #include <unordered_map>
 #include <vector>
@@ -581,6 +589,20 @@ tools::Rectangle TabControl::ImplGetTabRect( sal_uInt16 nItemPos, tools::Long nW
         // visible tab to the bottom of the TabControl, otherwise it extends
         // from the top of the TabControl
         tools::Long nTabBottom = mbShowTabs ? aRect.Bottom() : 0;
+
+        if (dynamic_cast<const NotebookbarTabControlBase*>(this) != nullptr
+            && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings()))
+        {
+            const double fScale = GetDPIScaleFactor();
+            const tools::Long nCardPadX = static_cast<tools::Long>(std::lround(12.0 * fScale));
+            const tools::Long nCardPadTop = static_cast<tools::Long>(std::lround(6.0 * fScale));
+            const tools::Long nCardPadBottom = static_cast<tools::Long>(std::lround(10.0 * fScale));
+            const tools::Long nW = nWidth - nCardPadX * 2;
+            const tools::Long nH = nHeight - nTabBottom - nCardPadTop - nCardPadBottom;
+            return (nW > 0 && nH > 0)
+                ? tools::Rectangle(Point(nCardPadX, nTabBottom + nCardPadTop), Size(nW, nH))
+                : tools::Rectangle();
+        }
 
         tools::Long nW = nWidth-TAB_OFFSET*2;
         tools::Long nH = nHeight - nTabBottom - TAB_OFFSET*2;
@@ -2109,8 +2131,18 @@ Size TabControl::ImplCalculateRequisition(sal_uInt16& nHeaderHeight) const
     aOptimalSize.AdjustHeight(nTabLabelsBottom );
     aOptimalSize.setWidth( std::max(nTabLabelsRight, aOptimalSize.Width()) );
 
-    aOptimalSize.AdjustWidth(TAB_OFFSET * 2 );
-    aOptimalSize.AdjustHeight(TAB_OFFSET * 2 );
+    if (dynamic_cast<const NotebookbarTabControlBase*>(this) != nullptr
+        && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings()))
+    {
+        const double fScale = GetDPIScaleFactor();
+        aOptimalSize.AdjustWidth(static_cast<tools::Long>(std::lround(24.0 * fScale)));
+        aOptimalSize.AdjustHeight(static_cast<tools::Long>(std::lround(16.0 * fScale)));
+    }
+    else
+    {
+        aOptimalSize.AdjustWidth(TAB_OFFSET * 2 );
+        aOptimalSize.AdjustHeight(TAB_OFFSET * 2 );
+    }
 
     return aOptimalSize;
 }
@@ -2172,7 +2204,7 @@ NotebookbarTabControlBase::NotebookbarTabControlBase(vcl::Window* pParent)
     , bLastContextWasSupported(true)
     , eLastContext(vcl::EnumContext::Context::Any)
 {
-    m_pOpenMenu = VclPtr<PushButton>::Create( this , WB_CENTER | WB_VCENTER );
+    m_pOpenMenu = VclPtr<PushButton>::Create( this , WB_CENTER | WB_VCENTER | WB_FLATBUTTON );
     m_pOpenMenu->SetClickHdl(LINK(this, NotebookbarTabControlBase, OpenMenu));
     m_pOpenMenu->SetModeImage(Image(StockImage::Yes, SV_RESID_BITMAP_NOTEBOOKBAR));
     m_pOpenMenu->SetSizePixel(m_pOpenMenu->GetOptimalSize());
@@ -2257,14 +2289,57 @@ static bool lcl_isValidPage(const ImplTabItem& rItem)
     return rItem.m_bVisible && rItem.m_bEnabled;
 }
 
+bool NotebookbarTabControlBase::IsCalcModule() const
+{
+    for (const vcl::Window* pWin = GetParent(); pWin != nullptr; pWin = pWin->GetParent())
+    {
+        if (const auto* pNb = dynamic_cast<const NotebookBar*>(pWin))
+            return pNb->GetModule() == u"com.sun.star.sheet.SpreadsheetDocument"_ustr;
+    }
+    return false;
+}
+
+void NotebookbarTabControlBase::SetBackstageOpen(bool bOpen)
+{
+    if (mbBackstageOpen != bOpen)
+    {
+        mbBackstageOpen = bOpen;
+        mbFilePressed = false;
+        Invalidate();
+    }
+}
+
+void NotebookbarTabControlBase::SetDocumentTitle(const OUString& rTitle, bool bModified)
+{
+    if (maDocTitle != rTitle || mbDocModified != bModified)
+    {
+        maDocTitle = rTitle;
+        mbDocModified = bModified;
+        mbFormat = true;
+        Invalidate();
+    }
+}
+
 void NotebookbarTabControlBase::ImplActivateTabPage( bool bNext )
 {
+    const bool bSkipFile = IsCalcModule()
+                           && vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+                           && !ThemeColors::IsThemeEnabled();
     sal_Int32 nCurPos = GetPagePos(GetCurPageId());
+    const sal_Int32 nCount = GetPageCount();
+
+    auto isCycleable = [bSkipFile](const ImplTabItem& rItem) -> bool {
+        if (!lcl_isValidPage(rItem))
+            return false;
+        if (bSkipFile && removeMnemonicFromString(rItem.maText).equalsIgnoreAsciiCase(u"File"))
+            return false;
+        return true;
+    };
 
     if (bNext)
     {
-        for (sal_Int32 nPos = nCurPos + 1; nPos < GetPageCount(); nPos++)
-            if (lcl_isValidPage(mpTabCtrlData->maItemList[nPos]))
+        for (sal_Int32 nPos = nCurPos + 1; nPos < nCount; nPos++)
+            if (isCycleable(mpTabCtrlData->maItemList[nPos]))
             {
                 nCurPos = nPos;
                 break;
@@ -2273,7 +2348,7 @@ void NotebookbarTabControlBase::ImplActivateTabPage( bool bNext )
     else
     {
         for (sal_Int32 nPos = nCurPos - 1; nPos >= 0; nPos--)
-            if (lcl_isValidPage(mpTabCtrlData->maItemList[nPos]))
+            if (isCycleable(mpTabCtrlData->maItemList[nPos]))
             {
                 nCurPos = nPos;
                 break;
@@ -2291,6 +2366,228 @@ bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
         return false;
     if (!m_pOpenMenu || m_pOpenMenu->isDisposed())
         return false;
+
+    const bool bFluentLight = vcl::officestudio::IsLightTheme(GetSettings().GetStyleSettings())
+                              && !ThemeColors::IsThemeEnabled();
+    const bool bIsCalc = IsCalcModule();
+    const double fScale = bFluentLight
+        ? (vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this) / 100.0)
+        : GetDPIScaleFactor();
+
+    if (bFluentLight && bIsCalc)
+    {
+        const tools::Long nRow1H = static_cast<tools::Long>(std::lround(36.0 * fScale));
+        const tools::Long nShortcutsX = static_cast<tools::Long>(std::lround(10.0 * fScale));
+        const tools::Long nShortcutsW = (m_pShortcuts && m_pShortcuts->GetItemCount() > 0)
+                                            ? m_pShortcuts->GetSizePixel().getWidth()
+                                            : 0;
+        const tools::Long nTitleStartX = (nShortcutsW > 0)
+                                             ? (nShortcutsX + nShortcutsW + static_cast<tools::Long>(std::lround(16.0 * fScale)))
+                                             : static_cast<tools::Long>(std::lround(12.0 * fScale));
+        const tools::Long nRightPad = static_cast<tools::Long>(std::lround(12.0 * fScale));
+        const tools::Long nSearchH = static_cast<tools::Long>(std::lround(26.0 * fScale));
+        const tools::Long nSearchY = std::max<tools::Long>(2, (nRow1H - nSearchH) / 2);
+        const tools::Long nMinTitleW = static_cast<tools::Long>(std::lround(140.0 * fScale));
+
+        // Search box centered in Row 1 with clean collision avoidance
+        tools::Long nSearchW = std::clamp<tools::Long>(
+            static_cast<tools::Long>(std::lround(nWidth * 0.24)),
+            static_cast<tools::Long>(std::lround(240.0 * fScale)),
+            static_cast<tools::Long>(std::lround(420.0 * fScale)));
+        tools::Long nSearchX = (nWidth - nSearchW) / 2;
+        if (nSearchX < nTitleStartX + nMinTitleW + static_cast<tools::Long>(std::lround(12.0 * fScale)))
+            nSearchX = nTitleStartX + nMinTitleW + static_cast<tools::Long>(std::lround(12.0 * fScale));
+        if (nSearchX + nSearchW > nWidth - nRightPad)
+            nSearchW = nWidth - nRightPad - nSearchX;
+
+        if (nSearchW >= static_cast<tools::Long>(std::lround(120.0 * fScale)))
+            maSearchBoxRect = tools::Rectangle(Point(nSearchX, nSearchY), Size(nSearchW, nSearchH));
+        else
+            maSearchBoxRect.SetEmpty();
+
+        const tools::Long nMaxTitleW = maSearchBoxRect.IsEmpty()
+                                           ? (nWidth - nTitleStartX - nRightPad)
+                                           : (maSearchBoxRect.Left() - nTitleStartX - static_cast<tools::Long>(std::lround(12.0 * fScale)));
+        if (nMaxTitleW >= static_cast<tools::Long>(std::lround(72.0 * fScale)))
+        {
+            const OUString sDisplay = maDocTitle.isEmpty() ? u"Untitled 1"_ustr : maDocTitle;
+            vcl::Font aTitleFont(GetFont());
+            aTitleFont.SetFamilyName(u"Segoe UI Semibold"_ustr);
+            aTitleFont.SetWeight(WEIGHT_NORMAL);
+            aTitleFont.SetFontHeight(static_cast<tools::Long>(std::lround(13.0 * fScale)));
+            auto popFont = GetOutDev()->ScopedPush(vcl::PushFlags::FONT);
+            GetOutDev()->SetFont(aTitleFont);
+            const tools::Long nTextW = GetOutDev()->GetTextWidth(sDisplay);
+            const tools::Long nStatusW = mbDocModified ? static_cast<tools::Long>(std::lround(70.0 * fScale))
+                                                       : static_cast<tools::Long>(std::lround(14.0 * fScale));
+            const tools::Long nWantedW = static_cast<tools::Long>(std::lround(30.0 * fScale)) + nTextW + nStatusW;
+            const tools::Long nTitleW = std::min(nMaxTitleW, std::max(nWantedW, static_cast<tools::Long>(std::lround(110.0 * fScale))));
+            const tools::Long nTitleY = static_cast<tools::Long>(std::lround(4.0 * fScale));
+            const tools::Long nTitleH = nRow1H - static_cast<tools::Long>(std::lround(8.0 * fScale));
+            maTitleRect = tools::Rectangle(Point(nTitleStartX, nTitleY), Size(nTitleW, nTitleH));
+        }
+        else
+            maTitleRect.SetEmpty();
+
+        if (m_pShortcuts)
+        {
+            tools::Long nPosY = (nRow1H - m_pShortcuts->GetSizePixel().getHeight()) / 2;
+            m_pShortcuts->SetPosPixel(Point(nShortcutsX, std::max<tools::Long>(0, nPosY)));
+        }
+
+        // Row 2: File button + Ribbon tabs + right menu button
+        const tools::Long nHamburgerWidth = m_pOpenMenu->GetSizePixel().Width();
+        const tools::Long nMenuPadR = static_cast<tools::Long>(std::lround(8.0 * fScale));
+        const tools::Long nMaxTabWidth = nWidth - nHamburgerWidth - nMenuPadR - static_cast<tools::Long>(std::lround(6.0 * fScale));
+        const tools::Long nOffsetX = static_cast<tools::Long>(std::lround(10.0 * fScale));
+        const tools::Long nTopY = nRow1H + static_cast<tools::Long>(std::lround(2.0 * fScale));
+        const tools::Long nTabH = static_cast<tools::Long>(std::lround(29.0 * fScale));
+        const tools::Long nGap = static_cast<tools::Long>(std::lround(4.0 * fScale));
+        const tools::Long nPadX = static_cast<tools::Long>(std::lround(22.0 * fScale));
+        const tools::Long nMinTabW = static_cast<tools::Long>(std::lround(48.0 * fScale));
+        const tools::Long nMinFileW = static_cast<tools::Long>(std::lround(58.0 * fScale));
+
+        tools::Long nTotalTabsW = 0;
+        int nVisibleCount = 0;
+        for (auto& item : mpTabCtrlData->maItemList)
+        {
+            if (!item.m_bVisible)
+                continue;
+            item.maFormatText = item.maText;
+            const tools::Long nTextW = GetOutDev()->GetCtrlTextWidth(item.maFormatText);
+            const OUString sClean = removeMnemonicFromString(item.maFormatText);
+            const tools::Long nMinW = sClean.equalsIgnoreAsciiCase(u"File") ? nMinFileW : nMinTabW;
+            tools::Long nTabW = std::max(nMinW, nTextW + nPadX);
+            if (!!item.maTabImage)
+                nTabW += item.maTabImage.GetSizePixel().Width() + static_cast<tools::Long>(std::lround(6.0 * fScale));
+            nTotalTabsW += nTabW + (nVisibleCount > 0 ? nGap : 0);
+            ++nVisibleCount;
+        }
+
+        const tools::Long nAvailW = std::max<tools::Long>(120, nMaxTabWidth - nOffsetX);
+        const double fShrink = (nTotalTabsW > nAvailW && nTotalTabsW > 0)
+                                   ? static_cast<double>(nAvailW) / static_cast<double>(nTotalTabsW)
+                                   : 1.0;
+
+        tools::Long nX = nOffsetX;
+        for (auto& item : mpTabCtrlData->maItemList)
+        {
+            if (!item.m_bVisible)
+                continue;
+
+            item.maFormatText = item.maText;
+            const tools::Long nTextW = GetOutDev()->GetCtrlTextWidth(item.maFormatText);
+            const OUString sClean = removeMnemonicFromString(item.maFormatText);
+            const tools::Long nMinW = sClean.equalsIgnoreAsciiCase(u"File") ? nMinFileW : nMinTabW;
+            tools::Long nTabW = std::max(nMinW, nTextW + nPadX);
+            if (!!item.maTabImage)
+                nTabW += item.maTabImage.GetSizePixel().Width() + static_cast<tools::Long>(std::lround(6.0 * fScale));
+
+            if (fShrink < 1.0)
+                nTabW = std::max<tools::Long>(static_cast<tools::Long>(std::lround(32.0 * fScale)),
+                                              static_cast<tools::Long>(std::lround(nTabW * fShrink)));
+
+            tools::Rectangle aNewRect(Point(nX, nTopY), Size(nTabW, nTabH));
+            if (mbSmallInvalidate && (item.maRect != aNewRect))
+                mbSmallInvalidate = false;
+
+            item.maRect = aNewRect;
+            item.mnLine = 0;
+            item.mbFullVisible = true;
+            nX += nTabW + std::max<tools::Long>(2, static_cast<tools::Long>(std::lround(nGap * fShrink)));
+        }
+
+        mnTabStripBottom = nTopY + nTabH + static_cast<tools::Long>(std::lround(3.0 * fScale));
+
+        tools::Long nMenuY = nTopY + (nTabH - m_pOpenMenu->GetSizePixel().getHeight()) / 2;
+        m_pOpenMenu->SetPosPixel(Point(std::max<tools::Long>(0, nWidth - nHamburgerWidth - nMenuPadR),
+                                       std::max<tools::Long>(0, nMenuY)));
+
+        return true;
+    }
+
+    if (bFluentLight)
+    {
+        const tools::Long nHamburgerWidth = m_pOpenMenu->GetSizePixel().Width();
+        const tools::Long nRightPad = static_cast<tools::Long>(std::lround(6.0 * fScale));
+        const tools::Long nMaxWidth = nWidth - nHamburgerWidth - nRightPad - static_cast<tools::Long>(std::lround(4.0 * fScale));
+        const tools::Long nShortcutsX = static_cast<tools::Long>(std::lround(10.0 * fScale));
+        const tools::Long nShortcutsW = (m_pShortcuts && m_pShortcuts->GetItemCount() > 0)
+                                            ? m_pShortcuts->GetSizePixel().getWidth()
+                                            : 0;
+        const tools::Long nDividerGap = (nShortcutsW > 0) ? static_cast<tools::Long>(std::lround(16.0 * fScale)) : 0;
+        const tools::Long nOffsetX = nShortcutsX + nShortcutsW + nDividerGap;
+        const tools::Long nTopY = static_cast<tools::Long>(std::lround(4.0 * fScale));
+        const tools::Long nTabH = static_cast<tools::Long>(std::lround(30.0 * fScale));
+        const tools::Long nGap = static_cast<tools::Long>(std::lround(4.0 * fScale));
+        const tools::Long nPadX = static_cast<tools::Long>(std::lround(22.0 * fScale));
+        const tools::Long nMinTabW = static_cast<tools::Long>(std::lround(46.0 * fScale));
+        const tools::Long nMinFileW = static_cast<tools::Long>(std::lround(56.0 * fScale));
+
+        tools::Long nTotalTabsW = 0;
+        int nVisibleCount = 0;
+        for (auto& item : mpTabCtrlData->maItemList)
+        {
+            if (!item.m_bVisible)
+                continue;
+            item.maFormatText = item.maText;
+            const tools::Long nTextW = GetOutDev()->GetCtrlTextWidth(item.maFormatText);
+            const OUString sClean = removeMnemonicFromString(item.maFormatText);
+            const tools::Long nMinW = sClean.equalsIgnoreAsciiCase(u"File") ? nMinFileW : nMinTabW;
+            tools::Long nTabW = std::max(nMinW, nTextW + nPadX);
+            if (!!item.maTabImage)
+                nTabW += item.maTabImage.GetSizePixel().Width() + static_cast<tools::Long>(std::lround(6.0 * fScale));
+            nTotalTabsW += nTabW + (nVisibleCount > 0 ? nGap : 0);
+            ++nVisibleCount;
+        }
+
+        const tools::Long nAvailW = std::max<tools::Long>(120, nMaxWidth - nOffsetX);
+        double fShrink = (nTotalTabsW > nAvailW && nTotalTabsW > 0)
+                             ? static_cast<double>(nAvailW) / static_cast<double>(nTotalTabsW)
+                             : 1.0;
+
+        tools::Long nX = nOffsetX;
+        for (auto& item : mpTabCtrlData->maItemList)
+        {
+            if (!item.m_bVisible)
+                continue;
+
+            item.maFormatText = item.maText;
+            const tools::Long nTextW = GetOutDev()->GetCtrlTextWidth(item.maFormatText);
+            const OUString sClean = removeMnemonicFromString(item.maFormatText);
+            const tools::Long nMinW = sClean.equalsIgnoreAsciiCase(u"File") ? nMinFileW : nMinTabW;
+            tools::Long nTabW = std::max(nMinW, nTextW + nPadX);
+            if (!!item.maTabImage)
+                nTabW += item.maTabImage.GetSizePixel().Width() + static_cast<tools::Long>(std::lround(6.0 * fScale));
+
+            if (fShrink < 1.0)
+                nTabW = std::max<tools::Long>(static_cast<tools::Long>(std::lround(32.0 * fScale)),
+                                              static_cast<tools::Long>(std::lround(nTabW * fShrink)));
+
+            tools::Rectangle aNewRect(Point(nX, nTopY), Size(nTabW, nTabH));
+            if (mbSmallInvalidate && (item.maRect != aNewRect))
+                mbSmallInvalidate = false;
+
+            item.maRect = aNewRect;
+            item.mnLine = 0;
+            item.mbFullVisible = true;
+            nX += nTabW + std::max<tools::Long>(2, static_cast<tools::Long>(std::lround(nGap * fShrink)));
+        }
+
+        m_nHeaderHeight = std::max<sal_uInt16>(m_nHeaderHeight, static_cast<sal_uInt16>(nTopY + nTabH));
+
+        if (m_pShortcuts)
+        {
+            tools::Long nPosY = nTopY + (nTabH - m_pShortcuts->GetSizePixel().getHeight()) / 2;
+            m_pShortcuts->SetPosPixel(Point(nShortcutsX, std::max<tools::Long>(0, nPosY)));
+        }
+
+        tools::Long nMenuY = nTopY + (nTabH - m_pOpenMenu->GetSizePixel().getHeight()) / 2;
+        m_pOpenMenu->SetPosPixel(Point(std::max<tools::Long>(0, nWidth - nHamburgerWidth - nRightPad),
+                                       std::max<tools::Long>(0, nMenuY)));
+
+        return true;
+    }
 
     const tools::Long nHamburgerWidth = m_pOpenMenu->GetSizePixel().Width();
     tools::Long nMaxWidth = nWidth - nHamburgerWidth;
@@ -2363,6 +2660,561 @@ bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
     m_pOpenMenu->SetPosPixel(Point(nWidth - nHamburgerWidth, nPosY));
 
     return true;
+}
+
+void NotebookbarTabControlBase::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
+{
+    const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
+    if (!vcl::officestudio::IsLightTheme(rStyleSettings) || ThemeColors::IsThemeEnabled()
+        || (GetStyle() & WB_NOBORDER))
+    {
+        TabControl::Paint(rRenderContext, rRect);
+        return;
+    }
+
+    Control::Paint(rRenderContext, rRect);
+    HideFocus();
+
+    const Size aWinSz = GetOutputSizePixel();
+    if (aWinSz.IsEmpty())
+        return;
+
+    const bool bIsCalc = IsCalcModule();
+    const double fScale = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*this) / 100.0;
+    auto popAA = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
+    rRenderContext.SetAntialiasing(AntialiasingFlags::Enable | AntialiasingFlags::PixelSnapHairline);
+
+    // Ensure item rects are formatted before painting
+    tools::Rectangle aEnsureRect = ImplGetTabRect(TAB_PAGERECT);
+    (void)aEnsureRect;
+
+    // 1. Clean M365 light header strip background
+    rRenderContext.SetLineColor();
+    rRenderContext.SetFillColor(bIsCalc ? vcl::officestudio::CalcTopHeaderBg : vcl::officestudio::RibbonHeaderBg);
+    rRenderContext.DrawRect(tools::Rectangle(Point(0, 0), aWinSz));
+
+    // Subtle divider between QAT and title/tabs
+    if (m_pShortcuts && m_pShortcuts->IsVisible() && m_pShortcuts->GetItemCount() > 0)
+    {
+        tools::Long nDivX = m_pShortcuts->GetPosPixel().X() + m_pShortcuts->GetSizePixel().Width()
+                            + static_cast<tools::Long>(std::lround(8.0 * fScale));
+        tools::Long nDivTop = static_cast<tools::Long>(std::lround(9.0 * fScale));
+        tools::Long nDivBot = static_cast<tools::Long>(std::lround(27.0 * fScale));
+        rRenderContext.SetLineColor(vcl::officestudio::BorderSubtle);
+        rRenderContext.DrawLine(Point(nDivX, nDivTop), Point(nDivX, nDivBot));
+    }
+
+    // 1b. Calc Row 1: Document title presentation & M365 Search box
+    if (bIsCalc)
+    {
+        if (!maTitleRect.IsEmpty())
+        {
+            if (mbTitleHover)
+            {
+                const double rx = std::clamp((10.0 * fScale) / std::max<double>(1.0, maTitleRect.GetWidth()), 0.0, 1.0);
+                const double ry = std::clamp((10.0 * fScale) / std::max<double>(1.0, maTitleRect.GetHeight()), 0.0, 1.0);
+                const basegfx::B2DPolygon aHoverPoly = basegfx::utils::createPolygonFromRect(
+                    basegfx::B2DRectangle(maTitleRect.Left(), maTitleRect.Top(), maTitleRect.Right(), maTitleRect.Bottom()),
+                    rx, ry);
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(vcl::officestudio::CalcTabHoverBg);
+                rRenderContext.DrawPolygon(aHoverPoly);
+            }
+
+            // Crisp 16x16 Excel-green rounded workbook mini-badge
+            const tools::Long nIconSz = static_cast<tools::Long>(std::lround(16.0 * fScale));
+            const tools::Long nIx = maTitleRect.Left() + static_cast<tools::Long>(std::lround(6.0 * fScale));
+            const tools::Long nIy = maTitleRect.Top() + (maTitleRect.GetHeight() - nIconSz) / 2;
+            const double ir = 3.5 * fScale;
+            const double irx = std::clamp((2.0 * ir) / std::max<double>(1.0, nIconSz), 0.0, 1.0);
+            const basegfx::B2DPolygon aBadge = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(nIx, nIy, nIx + nIconSz, nIy + nIconSz), irx, irx);
+            rRenderContext.SetLineColor();
+            rRenderContext.SetFillColor(vcl::officestudio::CalcAccent);
+            rRenderContext.DrawPolygon(aBadge);
+
+            // White crisp 2x2 cells inside workbook badge
+            rRenderContext.SetFillColor(COL_WHITE);
+            const tools::Long nCellW = std::max<tools::Long>(3, static_cast<tools::Long>(std::lround(4.0 * fScale)));
+            const tools::Long nCellH = std::max<tools::Long>(2, static_cast<tools::Long>(std::lround(3.0 * fScale)));
+            const tools::Long nGx = nIx + static_cast<tools::Long>(std::lround(3.0 * fScale));
+            const tools::Long nGy = nIy + static_cast<tools::Long>(std::lround(4.0 * fScale));
+            const tools::Long nGapPx = std::max<tools::Long>(1, static_cast<tools::Long>(std::lround(2.0 * fScale)));
+            rRenderContext.DrawRect(tools::Rectangle(Point(nGx, nGy), Size(nCellW, nCellH)));
+            rRenderContext.DrawRect(tools::Rectangle(Point(nGx + nCellW + nGapPx, nGy), Size(nCellW, nCellH)));
+            rRenderContext.DrawRect(tools::Rectangle(Point(nGx, nGy + nCellH + nGapPx), Size(nCellW, nCellH)));
+            rRenderContext.DrawRect(tools::Rectangle(Point(nGx + nCellW + nGapPx, nGy + nCellH + nGapPx), Size(nCellW, nCellH)));
+
+            const OUString sDisplayTitle = maDocTitle.isEmpty() ? u"Untitled 1"_ustr : maDocTitle;
+            vcl::Font aTitleFont(rRenderContext.GetFont());
+            aTitleFont.SetFamilyName(u"Segoe UI Semibold"_ustr);
+            aTitleFont.SetWeight(WEIGHT_NORMAL);
+            aTitleFont.SetFontHeight(static_cast<tools::Long>(std::lround(13.0 * fScale)));
+            aTitleFont.SetTransparent(true);
+            rRenderContext.SetFont(aTitleFont);
+            rRenderContext.SetTextFillColor();
+            rRenderContext.SetTextColor(vcl::officestudio::TextPrimary);
+
+            const tools::Long nTextX = nIx + nIconSz + static_cast<tools::Long>(std::lround(8.0 * fScale));
+            const tools::Long nPillReserve = mbDocModified ? static_cast<tools::Long>(std::lround(68.0 * fScale)) : static_cast<tools::Long>(std::lround(6.0 * fScale));
+            const tools::Long nTextMaxR = std::max(nTextX + 20, maTitleRect.Right() - nPillReserve);
+            const tools::Rectangle aTitleTextRc(nTextX, maTitleRect.Top(), nTextMaxR, maTitleRect.Bottom());
+            rRenderContext.DrawText(aTitleTextRc, sDisplayTitle, DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+
+            if (mbDocModified && maTitleRect.Right() - nTextX > static_cast<tools::Long>(std::lround(90.0 * fScale)))
+            {
+                const tools::Long nDrawnW = std::min<tools::Long>(rRenderContext.GetTextWidth(sDisplayTitle), aTitleTextRc.GetWidth());
+                const tools::Long nChipX = nTextX + nDrawnW + static_cast<tools::Long>(std::lround(8.0 * fScale));
+                const tools::Long nChipW = static_cast<tools::Long>(std::lround(56.0 * fScale));
+                const tools::Long nChipH = static_cast<tools::Long>(std::lround(18.0 * fScale));
+                const tools::Long nChipY = maTitleRect.Top() + (maTitleRect.GetHeight() - nChipH) / 2;
+                if (nChipX + nChipW <= maTitleRect.Right() - 2)
+                {
+                    const basegfx::B2DPolygon aChipPoly = basegfx::utils::createPolygonFromRect(
+                        basegfx::B2DRectangle(nChipX, nChipY, nChipX + nChipW, nChipY + nChipH), 0.5, 1.0);
+                    rRenderContext.SetLineColor();
+                    rRenderContext.SetFillColor(vcl::officestudio::AmberTile);
+                    rRenderContext.DrawPolygon(aChipPoly);
+                    vcl::Font aChipFont(aTitleFont);
+                    aChipFont.SetFamilyName(u"Segoe UI"_ustr);
+                    aChipFont.SetFontHeight(static_cast<tools::Long>(std::lround(11.0 * fScale)));
+                    rRenderContext.SetFont(aChipFont);
+                    rRenderContext.SetTextColor(vcl::officestudio::AmberDark);
+                    rRenderContext.DrawText(tools::Rectangle(Point(nChipX, nChipY), Size(nChipW, nChipH)),
+                                            u"Modified"_ustr, DrawTextFlags::Center | DrawTextFlags::VCenter);
+                }
+            }
+        }
+
+        if (!maSearchBoxRect.IsEmpty())
+        {
+            const double sx1 = static_cast<double>(maSearchBoxRect.Left());
+            const double sy1 = static_cast<double>(maSearchBoxRect.Top());
+            const double sx2 = static_cast<double>(maSearchBoxRect.Right());
+            const double sy2 = static_cast<double>(maSearchBoxRect.Bottom());
+            const double sr = 6.0 * fScale;
+            const double srx = std::clamp((2.0 * sr) / std::max(1.0, sx2 - sx1), 0.0, 1.0);
+            const double sry = std::clamp((2.0 * sr) / std::max(1.0, sy2 - sy1), 0.0, 1.0);
+
+            const basegfx::B2DPolygon aSearchShadow = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(sx1, sy1 + fScale, sx2, sy2 + fScale), srx, sry);
+            rRenderContext.SetLineColor();
+            rRenderContext.SetFillColor(vcl::officestudio::RibbonCardShadow);
+            rRenderContext.DrawPolygon(aSearchShadow);
+
+            const basegfx::B2DPolygon aSearchPoly = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(sx1, sy1, sx2, sy2), srx, sry);
+            rRenderContext.SetLineColor();
+            rRenderContext.SetFillColor(COL_WHITE);
+            rRenderContext.DrawPolygon(aSearchPoly);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(mbSearchHover ? vcl::officestudio::CalcAccent : vcl::officestudio::CalcSearchBorder);
+            rRenderContext.DrawPolyLine(aSearchPoly, 1.0 * fScale, basegfx::B2DLineJoin::Round);
+
+            // Magnifying glass vector icon
+            const double mCx = sx1 + 15.0 * fScale;
+            const double mCy = (sy1 + sy2) * 0.5 - 0.5 * fScale;
+            const double mR = 4.2 * fScale;
+            const basegfx::B2DPolygon aLens = basegfx::utils::createPolygonFromCircle(basegfx::B2DPoint(mCx, mCy), mR);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(mbSearchHover ? vcl::officestudio::CalcAccent : vcl::officestudio::Slate500);
+            rRenderContext.DrawPolyLine(aLens, 1.4 * fScale, basegfx::B2DLineJoin::Round);
+            basegfx::B2DPolygon aHandle;
+            aHandle.append(basegfx::B2DPoint(mCx + mR * 0.72, mCy + mR * 0.72));
+            aHandle.append(basegfx::B2DPoint(mCx + mR * 1.48, mCy + mR * 1.48));
+            rRenderContext.DrawPolyLine(aHandle, 1.5 * fScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+
+            // Right "Alt+Q" shortcut badge
+            const tools::Long nKbdW = static_cast<tools::Long>(std::lround(40.0 * fScale));
+            const tools::Long nKbdH = static_cast<tools::Long>(std::lround(18.0 * fScale));
+            const tools::Long nKbdX = maSearchBoxRect.Right() - nKbdW - static_cast<tools::Long>(std::lround(6.0 * fScale));
+            const tools::Long nKbdY = maSearchBoxRect.Top() + (maSearchBoxRect.GetHeight() - nKbdH) / 2;
+            const bool bShowKbd = maSearchBoxRect.GetWidth() >= static_cast<tools::Long>(std::lround(190.0 * fScale));
+            if (bShowKbd)
+            {
+                const double kr = 4.0 * fScale;
+                const double krx = std::clamp((2.0 * kr) / std::max<double>(1.0, nKbdW), 0.0, 1.0);
+                const double kry = std::clamp((2.0 * kr) / std::max<double>(1.0, nKbdH), 0.0, 1.0);
+                const basegfx::B2DPolygon aKbdPoly = basegfx::utils::createPolygonFromRect(
+                    basegfx::B2DRectangle(nKbdX, nKbdY, nKbdX + nKbdW, nKbdY + nKbdH), krx, kry);
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(vcl::officestudio::SurfaceSubtle);
+                rRenderContext.DrawPolygon(aKbdPoly);
+                rRenderContext.SetFillColor();
+                rRenderContext.SetLineColor(vcl::officestudio::Divider);
+                rRenderContext.DrawPolyLine(aKbdPoly, 1.0 * fScale, basegfx::B2DLineJoin::Round);
+
+                vcl::Font aKbdFont(rRenderContext.GetFont());
+                aKbdFont.SetFamilyName(u"Segoe UI"_ustr);
+                aKbdFont.SetWeight(WEIGHT_NORMAL);
+                aKbdFont.SetFontHeight(static_cast<tools::Long>(std::lround(11.0 * fScale)));
+                aKbdFont.SetTransparent(true);
+                rRenderContext.SetFont(aKbdFont);
+                rRenderContext.SetTextFillColor();
+                rRenderContext.SetTextColor(vcl::officestudio::Slate500);
+                rRenderContext.DrawText(tools::Rectangle(Point(nKbdX, nKbdY), Size(nKbdW, nKbdH)),
+                                        u"Alt+Q"_ustr, DrawTextFlags::Center | DrawTextFlags::VCenter);
+            }
+
+            const tools::Long nPlaceholderL = maSearchBoxRect.Left() + static_cast<tools::Long>(std::lround(28.0 * fScale));
+            const tools::Long nPlaceholderR = bShowKbd ? (nKbdX - static_cast<tools::Long>(std::lround(8.0 * fScale)))
+                                                       : (maSearchBoxRect.Right() - static_cast<tools::Long>(std::lround(8.0 * fScale)));
+            if (nPlaceholderR > nPlaceholderL + 16)
+            {
+                vcl::Font aSearchFont(rRenderContext.GetFont());
+                aSearchFont.SetFamilyName(u"Segoe UI"_ustr);
+                aSearchFont.SetWeight(WEIGHT_NORMAL);
+                aSearchFont.SetFontHeight(static_cast<tools::Long>(std::lround(12.5 * fScale)));
+                aSearchFont.SetTransparent(true);
+                rRenderContext.SetFont(aSearchFont);
+                rRenderContext.SetTextFillColor();
+                rRenderContext.SetTextColor(vcl::officestudio::TextMuted);
+                rRenderContext.DrawText(
+                    tools::Rectangle(nPlaceholderL, maSearchBoxRect.Top(), nPlaceholderR, maSearchBoxRect.Bottom()),
+                    u"Search commands or find in sheet..."_ustr,
+                    DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+            }
+        }
+    }
+
+    // 2. Find tab strip bottom and paint floating rounded white Ribbon card
+    tools::Long nTabBottom = static_cast<tools::Long>(std::lround((bIsCalc ? 67.0 : 34.0) * fScale));
+    for (const auto& rItem : mpTabCtrlData->maItemList)
+    {
+        if (rItem.m_bVisible && !rItem.maRect.IsEmpty())
+        {
+            nTabBottom = std::max(nTabBottom, rItem.maRect.Bottom());
+        }
+    }
+    if (!mbShowTabs)
+        nTabBottom = static_cast<tools::Long>(std::lround(4.0 * fScale));
+
+    const tools::Long nCardMarginX = static_cast<tools::Long>(std::lround(4.0 * fScale));
+    const tools::Long nCardTop = nTabBottom + static_cast<tools::Long>(std::lround(2.0 * fScale));
+    const tools::Long nCardBottom = aWinSz.Height() - static_cast<tools::Long>(std::lround(3.0 * fScale));
+    if (!(bIsCalc && mbBackstageOpen)
+        && aWinSz.Width() > nCardMarginX * 2 + 12 && nCardBottom > nCardTop + 12)
+    {
+        const double x1 = static_cast<double>(nCardMarginX);
+        const double y1 = static_cast<double>(nCardTop);
+        const double x2 = static_cast<double>(aWinSz.Width() - nCardMarginX);
+        const double y2 = static_cast<double>(nCardBottom);
+        const double r = 4.0 * fScale;
+        const double rx = std::clamp((2.0 * r) / std::max(1.0, x2 - x1), 0.0, 1.0);
+        const double ry = std::clamp((2.0 * r) / std::max(1.0, y2 - y1), 0.0, 1.0);
+
+        // Soft bottom drop shadow
+        basegfx::B2DPolygon aShadowPoly = basegfx::utils::createPolygonFromRect(
+            basegfx::B2DRectangle(x1, y1 + fScale, x2, y2 + 1.5 * fScale), rx, ry);
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::RibbonCardShadow);
+        rRenderContext.DrawPolygon(aShadowPoly);
+
+        // Crisp white floating card surface + 1px border
+        basegfx::B2DPolygon aCardPoly = basegfx::utils::createPolygonFromRect(
+            basegfx::B2DRectangle(x1, y1, x2, y2), rx, ry);
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::RibbonCardBg);
+        rRenderContext.DrawPolygon(aCardPoly);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(vcl::officestudio::RibbonCardBorder);
+        rRenderContext.DrawPolyLine(aCardPoly, 1.0 * fScale, basegfx::B2DLineJoin::Round);
+    }
+
+    // 3. Paint all visible Ribbon tabs in modern Fluent style
+    if (mbShowTabs && mpTabCtrlData->mpListBox == nullptr)
+    {
+        const Point aPtrPos = IsMouseOver() ? GetPointerPosPixel() : Point(-1, -1);
+        const vcl::Font aBaseFont(rRenderContext.GetFont());
+
+        auto isStandardTabName = [](const OUString& rClean) -> bool {
+            return rClean.equalsIgnoreAsciiCase(u"File")
+                || rClean.equalsIgnoreAsciiCase(u"Home")
+                || rClean.equalsIgnoreAsciiCase(u"Insert")
+                || rClean.equalsIgnoreAsciiCase(u"Draw")
+                || rClean.equalsIgnoreAsciiCase(u"Design")
+                || rClean.equalsIgnoreAsciiCase(u"Layout")
+                || rClean.equalsIgnoreAsciiCase(u"Page Layout")
+                || rClean.equalsIgnoreAsciiCase(u"Formulas")
+                || rClean.equalsIgnoreAsciiCase(u"Data")
+                || rClean.equalsIgnoreAsciiCase(u"References")
+                || rClean.equalsIgnoreAsciiCase(u"Mailings")
+                || rClean.equalsIgnoreAsciiCase(u"Review")
+                || rClean.equalsIgnoreAsciiCase(u"View")
+                || rClean.equalsIgnoreAsciiCase(u"Help")
+                || rClean.equalsIgnoreAsciiCase(u"Tools");
+        };
+
+        for (const auto& rItem : mpTabCtrlData->maItemList)
+        {
+            if (!rItem.m_bVisible || rItem.maRect.IsEmpty())
+                continue;
+
+            const bool bSelected = (rItem.id() == mnCurPageId);
+            const bool bHover = IsMouseOver() && rItem.maRect.Contains(aPtrPos);
+            const OUString sClean = removeMnemonicFromString(rItem.maFormatText);
+            const bool bIsFile = sClean.equalsIgnoreAsciiCase(u"File");
+            const bool bIsContextual = !bIsFile && !isStandardTabName(sClean)
+                                       && rItem.mpTabPage
+                                       && !rItem.mpTabPage->HasContext(vcl::EnumContext::Context::Any);
+            const bool bEffectiveSelected = bIsCalc ? (bSelected && !mbBackstageOpen) : bSelected;
+
+            const double tx1 = static_cast<double>(rItem.maRect.Left());
+            const double ty1 = static_cast<double>(rItem.maRect.Top() + 1);
+            const double tx2 = static_cast<double>(rItem.maRect.Right());
+            const double ty2 = static_cast<double>(rItem.maRect.Bottom() - 1);
+            const double pr = 5.0 * fScale;
+            const double prx = std::clamp((2.0 * pr) / std::max(1.0, tx2 - tx1), 0.0, 1.0);
+            const double pry = std::clamp((2.0 * pr) / std::max(1.0, ty2 - ty1), 0.0, 1.0);
+            const basegfx::B2DPolygon aPillPoly = basegfx::utils::createPolygonFromRect(
+                basegfx::B2DRectangle(tx1, ty1, tx2, ty2), prx, pry);
+
+            Color aTextColor = vcl::officestudio::TextPrimary;
+            Color aAccentColor = bIsCalc ? vcl::officestudio::CalcAccent : vcl::officestudio::DocsAccent;
+            bool bDrawBottomBar = bEffectiveSelected;
+
+            if (bIsFile)
+            {
+                const Color aActiveBg = bIsCalc ? vcl::officestudio::CalcAccent : vcl::officestudio::DocsAccent;
+                const Color aHoverBg = bIsCalc ? vcl::officestudio::CalcTabHoverBg : vcl::officestudio::TabHoverBg;
+                const bool bFileActive = bIsCalc ? (mbBackstageOpen || mbFilePressed) : bSelected;
+                if (bFileActive)
+                {
+                    rRenderContext.SetLineColor();
+                    rRenderContext.SetFillColor(aActiveBg);
+                    rRenderContext.DrawPolygon(aPillPoly);
+                    aTextColor = COL_WHITE;
+                }
+                else
+                {
+                    if (bHover)
+                    {
+                        rRenderContext.SetLineColor();
+                        rRenderContext.SetFillColor(aHoverBg);
+                        rRenderContext.DrawPolygon(aPillPoly);
+                    }
+                    aTextColor = vcl::officestudio::TextPrimary;
+                }
+                bDrawBottomBar = false;
+            }
+            else if (bIsContextual)
+            {
+                Color aCtxBg = vcl::officestudio::TealTile;
+                Color aCtxFg = vcl::officestudio::TealDark;
+                aAccentColor = vcl::officestudio::Teal;
+                if (sClean.startsWithIgnoreAsciiCase(u"Pivot"))
+                {
+                    aCtxBg = vcl::officestudio::IndigoTile;
+                    aCtxFg = vcl::officestudio::IndigoDark;
+                    aAccentColor = vcl::officestudio::Indigo;
+                }
+                else if (sClean.startsWithIgnoreAsciiCase(u"Chart"))
+                {
+                    aCtxBg = vcl::officestudio::SkyBlueTile;
+                    aCtxFg = vcl::officestudio::SkyBlueDark;
+                    aAccentColor = vcl::officestudio::SkyBlue;
+                }
+                else if (sClean.startsWithIgnoreAsciiCase(u"Table"))
+                {
+                    if (bIsCalc)
+                    {
+                        aCtxBg = vcl::officestudio::TealTile;
+                        aCtxFg = vcl::officestudio::TealDark;
+                        aAccentColor = vcl::officestudio::Teal;
+                    }
+                    else
+                    {
+                        aCtxBg = vcl::officestudio::EmeraldTile;
+                        aCtxFg = vcl::officestudio::EmeraldDark;
+                        aAccentColor = vcl::officestudio::Emerald;
+                    }
+                }
+                else if (sClean.startsWithIgnoreAsciiCase(u"Picture") || sClean.startsWithIgnoreAsciiCase(u"Image"))
+                {
+                    aCtxBg = vcl::officestudio::PurpleTile;
+                    aCtxFg = vcl::officestudio::PurpleDark;
+                    aAccentColor = vcl::officestudio::Purple;
+                }
+                else if (sClean.startsWithIgnoreAsciiCase(u"Shape") || sClean.startsWithIgnoreAsciiCase(u"Draw"))
+                {
+                    aCtxBg = vcl::officestudio::OrangeTile;
+                    aCtxFg = vcl::officestudio::OrangeDark;
+                    aAccentColor = vcl::officestudio::Orange;
+                }
+
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(aCtxBg);
+                rRenderContext.DrawPolygon(aPillPoly);
+
+                // Subtle top contextual accent bar
+                const double barH = std::max(2.0, 2.5 * fScale);
+                basegfx::B2DPolygon aTopBar = basegfx::utils::createPolygonFromRect(
+                    basegfx::B2DRectangle(tx1 + 6.0 * fScale, ty1, tx2 - 6.0 * fScale, ty1 + barH));
+                rRenderContext.SetFillColor(aAccentColor);
+                rRenderContext.DrawPolygon(aTopBar);
+
+                aTextColor = aCtxFg;
+            }
+            else
+            {
+                if (bHover && !bEffectiveSelected)
+                {
+                    rRenderContext.SetLineColor();
+                    rRenderContext.SetFillColor(bIsCalc ? vcl::officestudio::CalcTabHoverBg : vcl::officestudio::TabHoverBg);
+                    rRenderContext.DrawPolygon(aPillPoly);
+                }
+                if (!rItem.m_bEnabled)
+                    aTextColor = vcl::officestudio::Slate400;
+                else if (bEffectiveSelected)
+                    aTextColor = aAccentColor;
+                else
+                    aTextColor = vcl::officestudio::TextPrimary;
+            }
+
+            if (bDrawBottomBar)
+            {
+                const double indInset = std::min(10.0 * fScale, (tx2 - tx1) * 0.22);
+                const double indH = std::max(2.5, 3.0 * fScale);
+                const double ix1 = tx1 + indInset;
+                const double ix2 = tx2 - indInset;
+                const double iy1 = ty2 - indH;
+                const double iy2 = ty2;
+                const double irx = std::clamp(indH / std::max(1.0, ix2 - ix1), 0.0, 1.0);
+                basegfx::B2DPolygon aIndPoly = basegfx::utils::createPolygonFromRect(
+                    basegfx::B2DRectangle(ix1, iy1, ix2, iy2), irx, 1.0);
+                rRenderContext.SetLineColor();
+                rRenderContext.SetFillColor(aAccentColor);
+                rRenderContext.DrawPolygon(aIndPoly);
+            }
+
+            vcl::Font aFont(aBaseFont);
+            {
+                const bool bUseSemibold = bEffectiveSelected || bIsContextual;
+                aFont.SetFamilyName(bUseSemibold ? u"Segoe UI Semibold"_ustr : u"Segoe UI"_ustr);
+                aFont.SetWeight(WEIGHT_NORMAL);
+                aFont.SetFontHeight(static_cast<tools::Long>(std::lround(13.0 * fScale)));
+            }
+            aFont.SetTransparent(true);
+            rRenderContext.SetFont(aFont);
+            rRenderContext.SetTextFillColor();
+            rRenderContext.SetTextColor(aTextColor);
+
+            if (!rItem.maFormatText.isEmpty())
+            {
+                DrawTextFlags nTextFlags = DrawTextFlags::Mnemonic | DrawTextFlags::Center | DrawTextFlags::VCenter;
+                if (!rItem.m_bEnabled)
+                    nTextFlags |= DrawTextFlags::Disable;
+                DrawControlText(rRenderContext, rItem.maRect, rItem.maFormatText, nTextFlags, nullptr, nullptr);
+            }
+        }
+    }
+
+    if (HasFocus() && !bIsCalc)
+        ImplShowFocus();
+
+    mbSmallInvalidate = true;
+}
+
+void NotebookbarTabControlBase::MouseButtonDown(const MouseEvent& rMEvt)
+{
+    const StyleSettings& rStyle = GetSettings().GetStyleSettings();
+    if (IsCalcModule() && vcl::officestudio::IsLightTheme(rStyle) && !ThemeColors::IsThemeEnabled()
+        && rMEvt.IsLeft())
+    {
+        const Point aPos = rMEvt.GetPosPixel();
+        if (!maSearchBoxRect.IsEmpty() && maSearchBoxRect.Contains(aPos))
+        {
+            m_aSearchClickHdl.Call(this);
+            return;
+        }
+        if (!maTitleRect.IsEmpty() && maTitleRect.Contains(aPos))
+        {
+            m_aTitleClickHdl.Call(this);
+            return;
+        }
+        if (ImplTabItem* pItem = ImplGetItem(aPos))
+        {
+            if (pItem->m_bEnabled)
+            {
+                const OUString sClean = removeMnemonicFromString(pItem->maText);
+                if (sClean.equalsIgnoreAsciiCase(u"File"))
+                {
+                    mbFilePressed = true;
+                    Invalidate(pItem->maRect);
+                    m_aFileTabClickHdl.Call(this);
+                    mbFilePressed = false;
+                    return;
+                }
+                if (mbBackstageOpen)
+                {
+                    m_aFileTabClickHdl.Call(this);
+                }
+            }
+        }
+    }
+    TabControl::MouseButtonDown(rMEvt);
+}
+
+void NotebookbarTabControlBase::MouseButtonUp(const MouseEvent& rMEvt)
+{
+    if (mbFilePressed)
+    {
+        mbFilePressed = false;
+        Invalidate();
+    }
+    TabControl::MouseButtonUp(rMEvt);
+}
+
+void NotebookbarTabControlBase::MouseMove(const MouseEvent& rMEvt)
+{
+    TabControl::MouseMove(rMEvt);
+}
+
+bool NotebookbarTabControlBase::PreNotify(NotifyEvent& rNEvt)
+{
+    const StyleSettings& rStyle = GetSettings().GetStyleSettings();
+    if (rNEvt.GetType() == NotifyEventType::MOUSEMOVE && IsCalcModule()
+        && vcl::officestudio::IsLightTheme(rStyle) && !ThemeColors::IsThemeEnabled())
+    {
+        const MouseEvent* pMouseEvt = rNEvt.GetMouseEvent();
+        if (pMouseEvt && !pMouseEvt->IsSynthetic())
+        {
+            const Point aPos = GetPointerPosPixel();
+            const bool bLeave = pMouseEvt->IsLeaveWindow();
+            const bool bNewSearchHover = !bLeave && !maSearchBoxRect.IsEmpty() && maSearchBoxRect.Contains(aPos);
+            const bool bNewTitleHover = !bLeave && !maTitleRect.IsEmpty() && maTitleRect.Contains(aPos);
+
+            if (bNewSearchHover != mbSearchHover)
+            {
+                mbSearchHover = bNewSearchHover;
+                if (!maSearchBoxRect.IsEmpty())
+                    Invalidate(maSearchBoxRect);
+            }
+            if (bNewTitleHover != mbTitleHover)
+            {
+                mbTitleHover = bNewTitleHover;
+                if (!maTitleRect.IsEmpty())
+                    Invalidate(maTitleRect);
+            }
+
+            ImplTabItem* pItem = bLeave ? nullptr : ImplGetItem(aPos);
+            ImplTabItem* pLastItem = ImplGetItem(GetLastPointerPosPixel());
+            if (pItem != pLastItem || bLeave || pMouseEvt->IsEnterWindow())
+            {
+                vcl::Region aClipRgn;
+                if (pLastItem)
+                    aClipRgn.Union(pLastItem->maRect);
+                if (pItem)
+                    aClipRgn.Union(pItem->maRect);
+                if (!aClipRgn.IsEmpty())
+                    Invalidate(aClipRgn);
+            }
+
+            const bool bHand = bNewSearchHover || bNewTitleHover || (pItem != nullptr && pItem->m_bEnabled);
+            SetPointer(bHand ? PointerStyle::RefHand : PointerStyle::Arrow);
+        }
+    }
+    return TabControl::PreNotify(rNEvt);
 }
 
 Size NotebookbarTabControlBase::calculateRequisition() const

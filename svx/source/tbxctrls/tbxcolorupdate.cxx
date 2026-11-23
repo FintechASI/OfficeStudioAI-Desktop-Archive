@@ -31,6 +31,7 @@
 #include <vcl/commandinfoprovider.hxx>
 #include <vcl/gdimtf.hxx>
 #include <vcl/image.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/toolbox.hxx>
 #include <vcl/virdev.hxx>
@@ -209,6 +210,16 @@ Size VclToolboxButtonColorUpdater::GetItemSize(const Size& rImageSize) const
     return rImageSize;
 }
 
+Image VclToolboxButtonColorUpdater::ResolveBaseImage(const Image& rImage) const
+{
+    return mpTbx ? vcl::officestudio::ResolveRibbonToolBoxImage(*mpTbx, rImage) : rImage;
+}
+
+sal_Int32 VclToolboxButtonColorUpdater::GetDisplayScalePct() const
+{
+    return mpTbx ? vcl::officestudio::GetRibbonDisplayScalePct(*mpTbx) : 100;
+}
+
 ToolboxButtonColorUpdaterBase::~ToolboxButtonColorUpdaterBase() {}
 
 void ToolboxButtonColorUpdaterBase::Update(const NamedColor& rNamedColor)
@@ -231,6 +242,9 @@ void ToolboxButtonColorUpdaterBase::Update(const Color& rColor, bool bForceUpdat
 
     const bool bSizeChanged = (meImageType != eImageType);
     meImageType = eImageType;
+    const sal_Int32 nDisplayScalePct = GetDisplayScalePct();
+    const bool bScaleChanged = (mnLastDisplayScalePct != nDisplayScalePct);
+    mnLastDisplayScalePct = nDisplayScalePct;
     const bool bDisplayModeChanged
         = (mbWasHiContrastMode
            != Application::GetSettings().GetStyleSettings().GetHighContrastMode());
@@ -240,11 +254,11 @@ void ToolboxButtonColorUpdaterBase::Update(const Color& rColor, bool bForceUpdat
     if (aColor == COL_AUTO)
         aColor = COL_TRANSPARENT;
 
-    if ((maCurColor == aColor) && !bSizeChanged && !bDisplayModeChanged && !bForceUpdate)
+    if ((maCurColor == aColor) && !bSizeChanged && !bScaleChanged && !bDisplayModeChanged && !bForceUpdate)
         return;
 
-    const Image aImage
-        = vcl::CommandInfoProvider::GetImageForCommand(maCommandURL, mxFrame, meImageType);
+    const Image aImage = ResolveBaseImage(
+        vcl::CommandInfoProvider::GetImageForCommand(maCommandURL, mxFrame, meImageType));
 
     const Size aItemSize = GetItemSize(aImage.GetSizePixel());
     if (!aItemSize.Width() || !aItemSize.Height())

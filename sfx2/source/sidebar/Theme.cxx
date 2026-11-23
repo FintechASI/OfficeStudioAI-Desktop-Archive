@@ -101,39 +101,46 @@ void Theme::UpdateTheme()
     {
         const StyleSettings& rStyle (Application::GetSettings().GetStyleSettings());
 
-        Color aBaseBackgroundColor (rStyle.GetDialogColor());
-        // UX says this should be a little brighter, but that looks off when compared to the other windows.
-        //aBaseBackgroundColor.IncreaseLuminance(7);
-        Color aSecondColor (aBaseBackgroundColor);
-        aSecondColor.DecreaseLuminance(15);
+        const bool bBrightOfficeStudio = !mbIsHighContrastMode && !rStyle.GetDialogColor().IsDark();
+        Color aDeckBg = bBrightOfficeStudio ? Color(0xFF, 0xFF, 0xFF) : rStyle.GetDialogColor();
+        Color aDeckTitleBg = bBrightOfficeStudio ? Color(0xEF, 0xF5, 0xFE) : rStyle.GetDialogColor();
+        Color aPanelBg = bBrightOfficeStudio ? Color(0xFF, 0xFF, 0xFF) : rStyle.GetDialogColor();
+        Color aPanelTitleBg(aDeckBg);
+        if (bBrightOfficeStudio)
+            aPanelTitleBg = Color(0xF3, 0xF6, 0xFB);
+        else
+            aPanelTitleBg.DecreaseLuminance(15);
+        Color aTabBarBg = bBrightOfficeStudio ? Color(0xF8, 0xFA, 0xFC) : rStyle.GetDialogColor();
+        Color aHighlightBg = bBrightOfficeStudio ? Color(0xDB, 0xEA, 0xFE) : rStyle.GetHighlightColor();
+        Color aHighlightFg = bBrightOfficeStudio ? Color(0x0F, 0x1F, 0x3D) : rStyle.GetHighlightTextColor();
 
         setPropertyValue(
             maPropertyIdToNameMap[Color_DeckBackground],
-            Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
+            Any(sal_Int32(aDeckBg.GetRGBColor())));
 
         setPropertyValue(
             maPropertyIdToNameMap[Color_DeckTitleBarBackground],
-            Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
+            Any(sal_Int32(aDeckTitleBg.GetRGBColor())));
         setPropertyValue(
             maPropertyIdToNameMap[Int_DeckSeparatorHeight],
             Any(sal_Int32(1)));
         setPropertyValue(
             maPropertyIdToNameMap[Color_PanelBackground],
-            Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
+            Any(sal_Int32(aPanelBg.GetRGBColor())));
 
         setPropertyValue(
             maPropertyIdToNameMap[Color_PanelTitleBarBackground],
-            Any(sal_Int32(aSecondColor.GetRGBColor())));
+            Any(sal_Int32(aPanelTitleBg.GetRGBColor())));
         setPropertyValue(
             maPropertyIdToNameMap[Color_TabBarBackground],
-            Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
+            Any(sal_Int32(aTabBarBg.GetRGBColor())));
 
         setPropertyValue(
             maPropertyIdToNameMap[Color_Highlight],
-            Any(sal_Int32(rStyle.GetHighlightColor().GetRGBColor())));
+            Any(sal_Int32(aHighlightBg.GetRGBColor())));
         setPropertyValue(
             maPropertyIdToNameMap[Color_HighlightText],
-            Any(sal_Int32(rStyle.GetHighlightTextColor().GetRGBColor())));
+            Any(sal_Int32(aHighlightFg.GetRGBColor())));
     }
     catch(beans::UnknownPropertyException const &)
     {

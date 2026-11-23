@@ -23,6 +23,8 @@
 #include <vcl/bitmap.hxx>
 #include <vcl/salnativewidgets.hxx>
 #include <vcl/settings.hxx>
+#include <vcl/tabctrl.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/toolkit/scrbar.hxx>
 #include <svdata.hxx>
 
@@ -145,6 +147,16 @@ void TabPage::DataChanged( const DataChangedEvent& rDCEvt )
 void TabPage::Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& )
 {
     // draw native tabpage only inside tabcontrols, standalone tabpages look ugly (due to bad dialog design)
+    if (GetParent() && dynamic_cast<NotebookbarTabControlBase*>(GetParent()) != nullptr
+        && vcl::officestudio::IsLightTheme(rRenderContext.GetSettings().GetStyleSettings()))
+    {
+        auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR);
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(vcl::officestudio::RibbonCardBg);
+        rRenderContext.DrawRect(tools::Rectangle(Point(), GetOutputSizePixel()));
+        return;
+    }
+
     if( !(IsNativeControlSupported(ControlType::TabBody, ControlPart::Entire) && GetParent() && (GetParent()->GetType() == WindowType::TABCONTROL)) )
         return;
 

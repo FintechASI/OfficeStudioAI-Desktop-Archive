@@ -42,6 +42,7 @@
 #include <vcl/svapp.hxx>
 #include <vcl/settings.hxx>
 #include <vcl/themecolors.hxx>
+#include <vcl/OfficeStudioTheme.hxx>
 #include <vcl/skia/SkiaHelper.hxx>
 #include <salinst.hxx>
 #include <toolbarvalue.hxx>
@@ -439,6 +440,274 @@ bool UseDarkMode()
     return bRet;
 }
 
+static COLORREF toColorRef(const Color& rColor)
+{
+    return RGB(rColor.GetRed(), rColor.GetGreen(), rColor.GetBlue());
+}
+
+static void drawFluentRoundRect(HDC hDC, const RECT& rRc, int nRadius, const Color& rFill, const Color& rBorder)
+{
+    const int nDia = nRadius * 2;
+    ScopedSelectedHBRUSH hBrush(hDC, CreateSolidBrush(toColorRef(rFill)));
+    ScopedSelectedHPEN hPen(hDC, CreatePen(PS_SOLID, 1, toColorRef(rBorder)));
+    RoundRect(hDC, rRc.left, rRc.top, rRc.right, rRc.bottom, nDia, nDia);
+}
+
+static bool drawOfficeStudioFluentControl(HDC hDC, ControlType nType, ControlPart nPart, int iPart, int iState, RECT rc)
+{
+    if (nType == ControlType::Toolbar)
+    {
+        if (iPart == TP_BUTTON)
+        {
+            if (iState == TS_NORMAL)
+                return true;
+
+            Color aFill = vcl::officestudio::HoverBg;
+            Color aBorder = vcl::officestudio::Divider;
+            if (iState == TS_CHECKED)
+            {
+                aFill = vcl::officestudio::CheckedBg;
+                aBorder = vcl::officestudio::CheckedBorder;
+            }
+            else if (iState == TS_HOTCHECKED || iState == TS_PRESSED)
+            {
+                aFill = vcl::officestudio::PressedBg;
+                aBorder = vcl::officestudio::PressedBorder;
+            }
+
+            RECT aRc = rc;
+            InflateRect(&aRc, -1, -1);
+            drawFluentRoundRect(hDC, aRc, 4, aFill, aBorder);
+            return true;
+        }
+        if (nPart == ControlPart::DrawBackgroundHorz || nPart == ControlPart::DrawBackgroundVert)
+        {
+            ScopedHBRUSH hBrush(CreateSolidBrush(toColorRef(vcl::officestudio::SurfaceSubtle)));
+            FillRect(hDC, &rc, hBrush.get());
+            if (nPart == ControlPart::DrawBackgroundHorz && rc.bottom > rc.top + 1)
+            {
+                ScopedSelectedHPEN hPen(hDC, CreatePen(PS_SOLID, 1, toColorRef(vcl::officestudio::Divider)));
+                MoveToEx(hDC, rc.left, rc.bottom - 1, nullptr);
+                LineTo(hDC, rc.right, rc.bottom - 1);
+            }
+            return true;
+        }
+    }
+    else if (nType == ControlType::Editbox)
+    {
+        if (iPart == EP_EDITBORDER_NOSCROLL)
+        {
+            Color aBorder = vcl::officestudio::BorderSubtle;
+            if (iState == EPSN_DISABLED)
+                aBorder = vcl::officestudio::Divider;
+            else if (iState == EPSN_FOCUSED)
+                aBorder = vcl::officestudio::RoyalBlue;
+            else if (iState == EPSN_HOT)
+                aBorder = vcl::officestudio::Slate400;
+
+            drawFluentRoundRect(hDC, rc, 4, COL_WHITE, aBorder);
+            if (iState == EPSN_FOCUSED && rc.bottom - rc.top > 4)
+            {
+                ScopedSelectedHPEN hAccent(hDC, CreatePen(PS_SOLID, 2, toColorRef(vcl::officestudio::RoyalBlue)));
+                MoveToEx(hDC, rc.left + 3, rc.bottom - 2, nullptr);
+                LineTo(hDC, rc.right - 3, rc.bottom - 2);
+            }
+            return true;
+        }
+    }
+    else if (nType == ControlType::Combobox && nPart == ControlPart::ButtonDown)
+    {
+        if (iState == CBXS_HOT || iState == CBXS_PRESSED)
+        {
+            RECT aRc = rc;
+            InflateRect(&aRc, -1, -1);
+            Color aFill = (iState == CBXS_PRESSED) ? vcl::officestudio::CheckedBg : vcl::officestudio::HoverBg;
+            drawFluentRoundRect(hDC, aRc, 3, aFill, aFill);
+        }
+        const Color aChev = (iState == CBXS_DISABLED) ? vcl::officestudio::Slate400 : vcl::officestudio::Slate600;
+        const LONG cx = (rc.left + rc.right) / 2;
+        const LONG cy = (rc.top + rc.bottom) / 2;
+        const LONG halfW = std::max<LONG>(3, std::min<LONG>(4, (rc.right - rc.left) / 4));
+        const LONG halfH = std::max<LONG>(2, halfW / 2);
+        ScopedSelectedHPEN hPen(hDC, CreatePen(PS_SOLID, 1, toColorRef(aChev)));
+        MoveToEx(hDC, cx - halfW, cy - halfH, nullptr);
+        LineTo(hDC, cx, cy + halfH);
+        LineTo(hDC, cx + halfW + 1, cy - halfH - 1);
+        return true;
+    }
+    else if (nType == ControlType::Pushbutton && iPart == BP_PUSHBUTTON)
+    {
+        Color aFill = COL_WHITE;
+        Color aBorder = vcl::officestudio::BorderSubtle;
+        if (iState == PBS_PRESSED)
+        {
+            aFill = vcl::officestudio::CheckedBg;
+            aBorder = vcl::officestudio::CheckedBorder;
+        }
+        else if (iState == PBS_HOT)
+        {
+            aFill = vcl::officestudio::HoverBg;
+            aBorder = vcl::officestudio::Slate400;
+        }
+        else if (iState == PBS_DEFAULTED)
+        {
+            aFill = COL_WHITE;
+            aBorder = vcl::officestudio::RoyalBlue;
+        }
+        else if (iState == PBS_DISABLED)
+        {
+            aFill = vcl::officestudio::SurfaceSubtle;
+            aBorder = vcl::officestudio::Divider;
+        }
+        drawFluentRoundRect(hDC, rc, 4, aFill, aBorder);
+        return true;
+    }
+    else if (nType == ControlType::MenuPopup)
+    {
+        if (iPart == MENU_POPUPBACKGROUND)
+        {
+            ScopedHBRUSH hBrush(CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF)));
+            FillRect(hDC, &rc, hBrush.get());
+            ScopedHBRUSH hFrame(CreateSolidBrush(toColorRef(vcl::officestudio::RibbonCardBorder)));
+            FrameRect(hDC, &rc, hFrame.get());
+            return true;
+        }
+        if (iPart == MENU_POPUPITEM)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF)));
+            FillRect(hDC, &rc, hBg.get());
+            if (iState == MPI_HOT || iState == MPI_DISABLEDHOT)
+            {
+                RECT aPill = rc;
+                aPill.left += 4;
+                aPill.right -= 4;
+                aPill.top += 1;
+                aPill.bottom -= 1;
+                drawFluentRoundRect(hDC, aPill, 4, vcl::officestudio::MenuHoverBg, vcl::officestudio::CheckedBg);
+            }
+            return true;
+        }
+        if (nPart == ControlPart::Separator)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF)));
+            FillRect(hDC, &rc, hBg.get());
+            const LONG cy = (rc.top + rc.bottom) / 2;
+            ScopedSelectedHPEN hSep(hDC, CreatePen(PS_SOLID, 1, toColorRef(vcl::officestudio::Divider)));
+            MoveToEx(hDC, rc.left + 8, cy, nullptr);
+            LineTo(hDC, rc.right - 8, cy);
+            return true;
+        }
+    }
+    else if (nType == ControlType::Menubar)
+    {
+        if (nPart == ControlPart::Entire)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(toColorRef(vcl::officestudio::RibbonHeaderBg)));
+            FillRect(hDC, &rc, hBg.get());
+            return true;
+        }
+        if (nPart == ControlPart::MenuItem)
+        {
+            if (iState == MBI_HOT || iState == MBI_PUSHED)
+            {
+                RECT aPill = rc;
+                InflateRect(&aPill, -2, -2);
+                const Color aFill = (iState == MBI_PUSHED) ? vcl::officestudio::CheckedBg : vcl::officestudio::TabHoverBg;
+                drawFluentRoundRect(hDC, aPill, 4, aFill, aFill);
+            }
+            return true;
+        }
+    }
+    else if (nType == ControlType::Scrollbar)
+    {
+        if (iPart == SBP_UPPERTRACKHORZ || iPart == SBP_LOWERTRACKHORZ
+            || iPart == SBP_UPPERTRACKVERT || iPart == SBP_LOWERTRACKVERT)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(toColorRef(vcl::officestudio::SurfaceSubtle)));
+            FillRect(hDC, &rc, hBg.get());
+            return true;
+        }
+        if (iPart == SBP_THUMBBTNHORZ || iPart == SBP_THUMBBTNVERT)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(toColorRef(vcl::officestudio::SurfaceSubtle)));
+            FillRect(hDC, &rc, hBg.get());
+
+            Color aThumb = vcl::officestudio::Slate300;
+            if (iState == SCRBS_PRESSED)
+                aThumb = vcl::officestudio::Slate500;
+            else if (iState == SCRBS_HOT)
+                aThumb = vcl::officestudio::Slate400;
+
+            RECT aThumbRc = rc;
+            if (iPart == SBP_THUMBBTNHORZ)
+            {
+                aThumbRc.top += 3;
+                aThumbRc.bottom -= 3;
+            }
+            else
+            {
+                aThumbRc.left += 3;
+                aThumbRc.right -= 3;
+            }
+            if (aThumbRc.right > aThumbRc.left + 2 && aThumbRc.bottom > aThumbRc.top + 2)
+                drawFluentRoundRect(hDC, aThumbRc, 4, aThumb, aThumb);
+            return true;
+        }
+        if (iPart == SBP_ARROWBTN)
+        {
+            ScopedHBRUSH hBg(CreateSolidBrush(toColorRef(vcl::officestudio::SurfaceSubtle)));
+            FillRect(hDC, &rc, hBg.get());
+
+            const Color aArrow = (iState == ABS_UPHOT || iState == ABS_DOWNHOT || iState == ABS_LEFTHOT || iState == ABS_RIGHTHOT
+                                  || iState == ABS_UPPRESSED || iState == ABS_DOWNPRESSED || iState == ABS_LEFTPRESSED || iState == ABS_RIGHTPRESSED)
+                                     ? vcl::officestudio::Slate700
+                                     : vcl::officestudio::Slate500;
+            const LONG dx = std::max<LONG>(3, (rc.right - rc.left) / 4);
+            const LONG dy = std::max<LONG>(3, (rc.bottom - rc.top) / 4);
+            const LONG cx = (rc.left + rc.right) / 2;
+            const LONG cy = (rc.top + rc.bottom) / 2;
+            POINT pts[3];
+            bool bValid = true;
+            if (iState >= ABS_UPNORMAL && iState <= ABS_UPDISABLED)
+            {
+                pts[0] = { cx - dx, cy + dy / 2 };
+                pts[1] = { cx + dx, cy + dy / 2 };
+                pts[2] = { cx, cy - dy / 2 };
+            }
+            else if (iState >= ABS_DOWNNORMAL && iState <= ABS_DOWNDISABLED)
+            {
+                pts[0] = { cx - dx, cy - dy / 2 };
+                pts[1] = { cx + dx, cy - dy / 2 };
+                pts[2] = { cx, cy + dy / 2 };
+            }
+            else if (iState >= ABS_LEFTNORMAL && iState <= ABS_LEFTDISABLED)
+            {
+                pts[0] = { cx + dx / 2, cy - dy };
+                pts[1] = { cx + dx / 2, cy + dy };
+                pts[2] = { cx - dx / 2, cy };
+            }
+            else if (iState >= ABS_RIGHTNORMAL && iState <= ABS_RIGHTDISABLED)
+            {
+                pts[0] = { cx - dx / 2, cy - dy };
+                pts[1] = { cx + dx / 2, cy };
+                pts[2] = { cx - dx / 2, cy + dy };
+            }
+            else
+                bValid = false;
+
+            if (bValid)
+            {
+                ScopedSelectedHPEN hPen(hDC, CreatePen(PS_SOLID, 1, toColorRef(aArrow)));
+                ScopedSelectedHBRUSH hFill(hDC, CreateSolidBrush(toColorRef(aArrow)));
+                Polygon(hDC, pts, 3);
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool drawThemedControl(HDC hDC, ControlType nType, int iPart, int iState, RECT rc)
 {
     if (nType == ControlType::Scrollbar)
@@ -678,6 +947,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
             nType = ControlType::Editbox;
 
     bool bCanUseThemeColors = ThemeColors::VclPluginCanUseThemeColors();
+    const bool bFluentLight = !bUseDarkMode && !bCanUseThemeColors
+                              && vcl::officestudio::IsLightTheme(Application::GetSettings().GetStyleSettings());
     int iPart(0), iState(0);
     if( nType == ControlType::Scrollbar )
     {
@@ -696,6 +967,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             return (hr == S_OK);
@@ -714,6 +987,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             return (hr == S_OK);
@@ -732,6 +1007,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             return (hr == S_OK);
@@ -750,6 +1027,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             return (hr == S_OK);
@@ -773,6 +1052,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             // paint gripper on thumb if enough space
@@ -807,6 +1088,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             hr = DrawThemeBackground( hTheme, hDC, iPart, iState, &rc, nullptr);
             return (hr == S_OK);
@@ -917,6 +1200,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
                 iState = CBXS_HOT;
             else
                 iState = CBXS_NORMAL;
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
             return ImplDrawTheme( hTheme, hDC, iPart, iState, rc, aCaption);
         }
     }
@@ -938,6 +1223,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
         if (bCanUseThemeColors)
             return drawThemedControl(hDC, nType, iPart, iState, rc);
+        if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+            return true;
 
         return ImplDrawTheme( hTheme, hDC, iPart, iState, rc, aCaption);
     }
@@ -1004,6 +1291,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
         if (bCanUseThemeColors)
             return drawThemedControl(hDC, nType, iPart, iState, rc);
+        if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+            return true;
 
         return ImplDrawTheme( hTheme, hDC, iPart, iState, rc, aCaption);
     }
@@ -1176,6 +1465,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
             if (bCanUseThemeColors)
                 return drawThemedControl(hDC, nType, iPart, iState, rc);
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             if (bUseDarkMode && (bChecked || (nState & (ControlState::PRESSED) || (nState & ControlState::ROLLOVER))))
             {
@@ -1227,6 +1518,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
                 FillRect(hDC, &rc, hbrush.get());
                 return true;
             }
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
 
             // make it more compatible with Aero
             if (ImplGetSVData()->maNWFData.mbDockingAreaAvoidTBFrames &&
@@ -1262,6 +1555,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
                     FillRect(hDC, &rc, hbrush.get());
                     return true;
                 }
+                if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                    return true;
 
                 // make it more compatible with Aero
                 if (ImplGetSVData()->maNWFData.mbDockingAreaAvoidTBFrames &&
@@ -1271,6 +1566,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
                     return true;
                 }
             }
+            if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                return true;
             return ImplDrawTheme( hTheme, hDC, iPart, iState, rc, aCaption);
         }
         else if( nPart == ControlPart::MenuItem )
@@ -1299,6 +1596,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
                     FillRect(hDC, &rc, hbrush.get());
                     return true;
                 }
+                if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, iPart, iState, rc))
+                    return true;
             }
             else
             {
@@ -1437,6 +1736,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
                 if (bCanUseThemeColors)
                     return drawThemedControl(hDC, nType, MENU_POPUPBACKGROUND, iState, rc);
+                if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, MENU_POPUPBACKGROUND, iState, rc))
+                    return true;
 
                 return ImplDrawTheme(hTheme, hDC, MENU_POPUPBACKGROUND, 0, rc, aCaption)
                        && ImplDrawTheme(hTheme, hDC, MENU_POPUPGUTTER, 0, aGutterRC, aCaption);
@@ -1450,6 +1751,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
 
                 if (bCanUseThemeColors)
                     return drawThemedControl(hDC, nType, MENU_POPUPITEM, iState, rc);
+                if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, MENU_POPUPITEM, iState, rc))
+                    return true;
 
                 return ImplDrawTheme( hTheme, hDC, MENU_POPUPITEM, iState, rc, aCaption );
             }
@@ -1462,6 +1765,8 @@ static bool ImplDrawNativeControl( HDC hDC, HTHEME hTheme, RECT rc,
             }
             else if( nPart == ControlPart::Separator )
             {
+                if (bFluentLight && drawOfficeStudioFluentControl(hDC, nType, nPart, MENU_POPUPSEPARATOR, 0, rc))
+                    return true;
                 // adjust for gutter position
                 if( AllSettings::GetLayoutRTL() )
                     rc.right -= aValue.getNumericVal()+1;

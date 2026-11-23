@@ -82,6 +82,8 @@
 #include <verticaltabctrl.hxx>
 #include <wizdlg.hxx>
 #include <tools/svlibrary.h>
+#include <vcl/OfficeStudioTheme.hxx>
+#include <OfficeStudioIcons.hxx>
 #include <LibreOfficeKit/LibreOfficeKitEnums.h>
 
 #if defined(DISABLE_DYNLOADING) || defined(LINUX)
@@ -430,10 +432,28 @@ VclBuilder::VclBuilder(vcl::Window* pParent, std::u16string_view sUIDir, const O
             }
             else
             {
-                pTargetButton->SetModeImage(rImage);
+                Image aBtnImage = rImage;
+                if (vcl::officestudio::IsEnhancedRibbonWindow(*pTargetButton) && !rImage.GetStock().isEmpty())
+                {
+                    auto aSzIt = m_pVclParserState->m_aImageSizeMap.find(elem.m_sValue);
+                    const bool bTopIcon = (pTargetButton->GetImageAlign() == ImageAlign::Top)
+                                          || (aSzIt != m_pVclParserState->m_aImageSizeMap.end()
+                                              && aSzIt->second == 5);
+                    const sal_Int32 nBasePct
+                        = bTopIcon ? 100 : vcl::officestudio::RibbonSmallIconScalePct;
+                    const sal_Int32 nDispPct
+                        = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*pTargetButton);
+                    const sal_Int32 nEffPct
+                        = vcl::officestudio::ComputeRibbonIconScalePct(nBasePct, nDispPct);
+                    Bitmap aBitmap;
+                    if (vcl::officestudio::TryRenderOffice2021CommandIcon(rImage.GetStock(), nEffPct, aBitmap)
+                        && !aBitmap.IsEmpty())
+                        aBtnImage = Image(aBitmap);
+                }
+                pTargetButton->SetModeImage(aBtnImage);
                 if (pImage->GetStyle() & WB_SMALLSTYLE)
                 {
-                    Size aSz(rImage.GetSizePixel());
+                    Size aSz(aBtnImage.GetSizePixel());
                     aSz.AdjustWidth(6);
                     aSz.AdjustHeight(6);
                     if (pTargetButton->get_width_request() == -1)
@@ -465,6 +485,7 @@ VclBuilder::VclBuilder(vcl::Window* pParent, std::u16string_view sUIDir, const O
                     pTarget->set_height_request(pTarget->GetOptimalSize().Height() * 1.5);
                     break;
                 case 4:
+                case 5:
                     break;
                 default:
                     SAL_WARN("vcl.builder", "unsupported image size " << aFind->second);
@@ -754,7 +775,28 @@ namespace
         if (!aTooltip.isEmpty())
             pButton->SetQuickHelpText(aTooltip);
 
-        Image aImage(vcl::CommandInfoProvider::GetImageForCommand(aCommand, rFrame));
+        Image aImage;
+        if (pButton && vcl::officestudio::IsEnhancedRibbonWindow(*pButton))
+        {
+            auto itPos = rMap.find(u"image-position"_ustr);
+            const bool bTopIcon = (itPos != rMap.end() && itPos->second == u"top");
+            const vcl::ImageType eImgType = bTopIcon ? vcl::ImageType::Size32 : vcl::ImageType::Size16;
+            aImage = vcl::CommandInfoProvider::GetImageForCommand(aCommand, rFrame, eImgType);
+            const OUString& rStock = aImage.GetStock();
+            if (!rStock.isEmpty())
+            {
+                const sal_Int32 nBasePct = bTopIcon ? 100 : vcl::officestudio::RibbonSmallIconScalePct;
+                const sal_Int32 nDispPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*pButton);
+                const sal_Int32 nEffPct = vcl::officestudio::ComputeRibbonIconScalePct(nBasePct, nDispPct);
+                Bitmap aBitmap;
+                if (vcl::officestudio::TryRenderOffice2021CommandIcon(rStock, nEffPct, aBitmap) && !aBitmap.IsEmpty())
+                    aImage = Image(aBitmap);
+            }
+        }
+        else
+        {
+            aImage = vcl::CommandInfoProvider::GetImageForCommand(aCommand, rFrame);
+        }
         pButton->SetModeImage(aImage);
 
         pButton->SetCommandHandler(aCommand, rFrame);
@@ -1261,6 +1303,17 @@ VclPtr<vcl::Window> VclBuilder::makeObject(vcl::Window *pParent, const OUString 
         }
         xButton->SetImageAlign(ImageAlign::Left); //default to left
         setupFromActionName(xButton, rMap, m_xFrame);
+        if (id == u"btnHomeReplace" && vcl::officestudio::IsEnhancedRibbonWindow(*xButton))
+        {
+            const sal_Int32 nDispPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*xButton);
+            const sal_Int32 nEffPct = vcl::officestudio::ComputeRibbonIconScalePct(
+                vcl::officestudio::RibbonSmallIconScalePct, nDispPct);
+            Bitmap aBitmap;
+            if (vcl::officestudio::TryRenderOffice2021CommandIcon(
+                    u"cmd/sc_searchreplace.png"_ustr, nEffPct, aBitmap)
+                && !aBitmap.IsEmpty())
+                xButton->SetModeImage(Image(aBitmap));
+        }
         xWindow = xButton;
     }
     else if (name == "GtkMenuButton")
@@ -1299,6 +1352,17 @@ VclPtr<vcl::Window> VclBuilder::makeObject(vcl::Window *pParent, const OUString 
         m_pVclParserState->m_aButtonMenuMaps.emplace_back(id, sMenu);
         xButton->SetImageAlign(ImageAlign::Left); //default to left
         setupFromActionName(xButton, rMap, m_xFrame);
+        if (id == u"btnHomeReplace" && vcl::officestudio::IsEnhancedRibbonWindow(*xButton))
+        {
+            const sal_Int32 nDispPct = vcl::officestudio::GetWindowEffectiveDisplayScalePct(*xButton);
+            const sal_Int32 nEffPct = vcl::officestudio::ComputeRibbonIconScalePct(
+                vcl::officestudio::RibbonSmallIconScalePct, nDispPct);
+            Bitmap aBitmap;
+            if (vcl::officestudio::TryRenderOffice2021CommandIcon(
+                    u"cmd/sc_searchreplace.png"_ustr, nEffPct, aBitmap)
+                && !aBitmap.IsEmpty())
+                xButton->SetModeImage(Image(aBitmap));
+        }
         xWindow = xButton;
     }
     else if (name == "GtkRadioButton")
@@ -1685,6 +1749,12 @@ VclPtr<vcl::Window> VclBuilder::makeObject(vcl::Window *pParent, const OUString 
             {
                 pToolBox->InsertItem(aCommand, m_xFrame, nBits, extractSizeRequest(rMap));
                 nItemId = pToolBox->GetItemId(aCommand);
+                if (vcl::officestudio::IsEnhancedRibbonWindow(*pToolBox))
+                {
+                    OUString sExplicitLabel(extractLabel(rMap));
+                    if (!sExplicitLabel.isEmpty())
+                        pToolBox->SetItemText(nItemId, sExplicitLabel);
+                }
             }
             else
             {

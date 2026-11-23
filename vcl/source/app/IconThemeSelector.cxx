@@ -65,9 +65,9 @@ IconThemeSelector::IconThemeSelector()
 #ifdef _WIN32
     (void)eDesktop;
     if (!bPreferDarkIconTheme)
-        return "colibre";
+        return "colibre_svg";
     else
-        return "colibre_dark";
+        return "colibre_dark_svg";
 #else
     OUString r;
     if (eDesktop == DesktopType::Plasma5 || eDesktop == DesktopType::Plasma6

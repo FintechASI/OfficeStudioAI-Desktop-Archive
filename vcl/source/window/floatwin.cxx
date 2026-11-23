@@ -253,8 +253,12 @@ Point FloatingWindow::ImplCalcPos(vcl::Window* pWindow,
         // create a rect that can be compared to desktop coordinates
         devRectRTL = pW->ImplOutputToUnmirroredAbsoluteScreenPixel( normRect );
     if( Application::GetScreenCount() > 1 )
-        aScreenRect = Application::GetScreenPosSizePixel(
+    {
+        const AbsoluteScreenPixelRectangle aBestScreenRect = Application::GetScreenPosSizePixel(
             Application::GetBestScreen( bRTL ? devRectRTL : devRect ) );
+        if (!aBestScreenRect.IsEmpty())
+            aScreenRect = aBestScreenRect;
+    }
 
     FloatWinPopupFlags nArrangeAry[5];
     sal_uInt16 nArrangeAttempts = 5;

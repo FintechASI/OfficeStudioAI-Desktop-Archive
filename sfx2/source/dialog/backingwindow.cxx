@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -101,8 +102,8 @@ using namespace ::com::sun::star::document;
 namespace
 {
 // Approved OfficeStudio AI palette matching OfficeStudioAI-StartCenter.png
-constexpr Color COL_NAV_BG(0xED, 0xF1, 0xF6);
-constexpr Color COL_NAV_HOVER(0xE1, 0xE7, 0xF0);
+constexpr Color COL_NAV_BG(0xF8, 0xFA, 0xFC);
+constexpr Color COL_NAV_HOVER(0xEE, 0xF3, 0xFA);
 constexpr Color COL_NAVY(0x10, 0x23, 0x42);
 constexpr Color COL_NAVY_DARK(0x0A, 0x1A, 0x33);
 constexpr Color COL_RED_BRAND(0xDA, 0x18, 0x23);
@@ -120,14 +121,40 @@ constexpr Color COL_FOOTER_BG(0xF2, 0xF5, 0xF9);
 constexpr Color COL_CARD_DOCS(0x1A, 0x73, 0xE8);
 constexpr Color COL_CARD_SHEET(0x16, 0xA3, 0x4A);
 constexpr Color COL_CARD_SLIDE(0xEA, 0x58, 0x0C);
-constexpr Color COL_CARD_FLOW(0x7C, 0x3A, 0xED);
+constexpr Color COL_CARD_DESIGN(0x7C, 0x3A, 0xED);
+constexpr Color COL_CARD_DB(0xDC, 0x26, 0x26);
+constexpr Color COL_CARD_EMAIL(0x1A, 0x73, 0xE8);
+constexpr Color COL_CARD_PDF(0xC8, 0x1E, 0x2B);
+constexpr Color COL_CARD_ESIGN(0x0D, 0x94, 0x88);
+constexpr Color COL_CARD_MATH(0x7C, 0x3A, 0xED);
+constexpr Color COL_BADGE_BG(0xE8, 0xEE, 0xF5);
+constexpr Color COL_BADGE_TEXT(0x33, 0x41, 0x55);
 
-vcl::Font MakeUiFont(int nHeightPx, FontWeight eWeight = WEIGHT_NORMAL)
+double GetScale(weld::DrawingArea* pArea)
+{
+    if (!pArea)
+        return 1.0;
+    return std::max(1.0, static_cast<double>(pArea->get_ref_device().GetDPIScaleFactor()));
+}
+
+double GetScale(const vcl::RenderContext& rCtx)
+{
+    return std::max(1.0, static_cast<double>(rCtx.GetDPIScaleFactor()));
+}
+
+tools::Long Sx(tools::Long nPx, double fScale)
+{
+    return static_cast<tools::Long>(std::lround(static_cast<double>(nPx) * fScale));
+}
+
+vcl::Font MakeUiFont(int nHeightPx, FontWeight eWeight = WEIGHT_NORMAL, bool bItalic = false)
 {
     vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
     aFont.SetFamilyName(u"Segoe UI"_ustr);
     aFont.SetFontHeight(nHeightPx);
     aFont.SetWeight(eWeight);
+    if (bItalic)
+        aFont.SetItalic(ITALIC_NORMAL);
     aFont.SetTransparent(true);
     return aFont;
 }
@@ -142,6 +169,20 @@ void DrawStrokePoly(vcl::RenderContext& rRenderContext, const std::vector<basegf
     rRenderContext.SetFillColor();
     rRenderContext.SetLineColor(aColor);
     rRenderContext.DrawPolyLine(aPoly, fWidth, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+}
+
+void DrawDownArc(vcl::RenderContext& rRenderContext, double cx, double y0, double rx, double ry,
+                 Color aColor, double fWidth)
+{
+    basegfx::B2DPolygon aArc;
+    aArc.append(basegfx::B2DPoint(cx - rx, y0));
+    aArc.appendBezierSegment(
+        basegfx::B2DPoint(cx - rx * 0.45, y0 + ry),
+        basegfx::B2DPoint(cx + rx * 0.45, y0 + ry),
+        basegfx::B2DPoint(cx + rx, y0));
+    rRenderContext.SetFillColor();
+    rRenderContext.SetLineColor(aColor);
+    rRenderContext.DrawPolyLine(aArc, fWidth, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
 }
 
 void FillSolidRect(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect, Color aFill)
@@ -191,7 +232,7 @@ void DrawCircleStroke(vcl::RenderContext& rRenderContext, double fCx, double fCy
 void DrawMiniDocIcon(vcl::RenderContext& rRenderContext, int nX, int nY, int nSize, const OUString& rExt)
 {
     const OUString aExt = rExt.toAsciiLowerCase();
-    int nKind = 0; // 0=other, 1=docs, 2=sheet, 3=slides, 4=flows
+    int nKind = 0; // 0=other, 1=docs, 2=sheet, 3=slides, 4=design, 5=db, 6=math
     if (aExt == u"odt" || aExt == u"fodt" || aExt == u"doc" || aExt == u"docx" || aExt == u"rtf" || aExt == u"txt" || aExt == u"ott")
         nKind = 1;
     else if (aExt == u"ods" || aExt == u"fods" || aExt == u"xls" || aExt == u"xlsx" || aExt == u"csv" || aExt == u"ots")
@@ -200,31 +241,38 @@ void DrawMiniDocIcon(vcl::RenderContext& rRenderContext, int nX, int nY, int nSi
         nKind = 3;
     else if (aExt == u"odg" || aExt == u"fodg" || aExt == u"otg" || aExt == u"vsd" || aExt == u"vsdx")
         nKind = 4;
+    else if (aExt == u"odb" || aExt == u"dbf")
+        nKind = 5;
+    else if (aExt == u"odf" || aExt == u"sxm" || aExt == u"mml")
+        nKind = 6;
 
     Color aColor = COL_TEXT_MUTED;
     if (nKind == 1) aColor = COL_CARD_DOCS;
     else if (nKind == 2) aColor = COL_CARD_SHEET;
     else if (nKind == 3) aColor = COL_CARD_SLIDE;
-    else if (nKind == 4) aColor = COL_CARD_FLOW;
+    else if (nKind == 4) aColor = COL_CARD_DESIGN;
+    else if (nKind == 5) aColor = COL_CARD_DB;
+    else if (nKind == 6) aColor = COL_CARD_MATH;
 
     const double x = nX;
     const double y = nY;
     const double w = nSize;
     const double h = nSize;
+    const double fS = std::max(1.0, w / 20.0);
 
     if (nKind == 2)
     {
-        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 1, nY + 2), Size(nSize - 2, nSize - 4)), 2.5, COL_SURFACE_WHITE, aColor, 1.5);
-        DrawStrokePoly(rRenderContext, { { x + 2, y + h * 0.42 }, { x + w - 2, y + h * 0.42 } }, false, aColor, 1.3);
-        DrawStrokePoly(rRenderContext, { { x + 2, y + h * 0.66 }, { x + w - 2, y + h * 0.66 } }, false, aColor, 1.3);
-        DrawStrokePoly(rRenderContext, { { x + w * 0.42, y + 3 }, { x + w * 0.42, y + h - 3 } }, false, aColor, 1.3);
-        DrawStrokePoly(rRenderContext, { { x + w * 0.68, y + 3 }, { x + w * 0.68, y + h - 3 } }, false, aColor, 1.3);
+        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 1, nY + 2), Size(nSize - 2, nSize - 4)), 2.5 * fS, COL_SURFACE_WHITE, aColor, 1.5 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 2 * fS, y + h * 0.42 }, { x + w - 2 * fS, y + h * 0.42 } }, false, aColor, 1.3 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 2 * fS, y + h * 0.66 }, { x + w - 2 * fS, y + h * 0.66 } }, false, aColor, 1.3 * fS);
+        DrawStrokePoly(rRenderContext, { { x + w * 0.42, y + 3 * fS }, { x + w * 0.42, y + h - 3 * fS } }, false, aColor, 1.3 * fS);
+        DrawStrokePoly(rRenderContext, { { x + w * 0.68, y + 3 * fS }, { x + w * 0.68, y + h - 3 * fS } }, false, aColor, 1.3 * fS);
     }
     else if (nKind == 3)
     {
-        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 1, nY + 2), Size(nSize - 2, nSize - 7)), 2.5, COL_SURFACE_WHITE, aColor, 1.5);
-        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + h - 5 }, { x + w * 0.3, y + h - 1 } }, false, aColor, 1.5);
-        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + h - 5 }, { x + w * 0.7, y + h - 1 } }, false, aColor, 1.5);
+        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 1, nY + 2), Size(nSize - 2, nSize - static_cast<tools::Long>(7 * fS))), 2.5 * fS, COL_SURFACE_WHITE, aColor, 1.5 * fS);
+        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + h - 5 * fS }, { x + w * 0.3, y + h - fS } }, false, aColor, 1.5 * fS);
+        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + h - 5 * fS }, { x + w * 0.7, y + h - fS } }, false, aColor, 1.5 * fS);
         basegfx::B2DPolygon aTri;
         aTri.append(basegfx::B2DPoint(x + w * 0.42, y + h * 0.28));
         aTri.append(basegfx::B2DPoint(x + w * 0.42, y + h * 0.54));
@@ -236,25 +284,59 @@ void DrawMiniDocIcon(vcl::RenderContext& rRenderContext, int nX, int nY, int nSi
     }
     else if (nKind == 4)
     {
-        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + nSize / 2 - 4, nY + 2), Size(8, 5)), 1.5, COL_SURFACE_WHITE, aColor, 1.4);
-        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 2, nY + nSize - 8), Size(7, 5)), 1.5, COL_SURFACE_WHITE, aColor, 1.4);
-        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + nSize - 9, nY + nSize - 8), Size(7, 5)), 1.5, COL_SURFACE_WHITE, aColor, 1.4);
-        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + 7 }, { x + w * 0.5, y + h * 0.55 } }, false, aColor, 1.3);
-        DrawStrokePoly(rRenderContext, { { x + 5.5, y + h - 8 }, { x + 5.5, y + h * 0.55 }, { x + w - 5.5, y + h * 0.55 }, { x + w - 5.5, y + h - 8 } }, false, aColor, 1.3);
+        const tools::Long bw = static_cast<tools::Long>(std::lround(7 * fS));
+        const tools::Long bh = static_cast<tools::Long>(std::lround(5 * fS));
+        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + nSize / 2 - bw / 2, nY + 2), Size(bw + 1, bh)), 1.5 * fS, COL_SURFACE_WHITE, aColor, 1.4 * fS);
+        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + 2, nY + nSize - bh - 3), Size(bw, bh)), 1.5 * fS, COL_SURFACE_WHITE, aColor, 1.4 * fS);
+        DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nX + nSize - bw - 2, nY + nSize - bh - 3), Size(bw, bh)), 1.5 * fS, COL_SURFACE_WHITE, aColor, 1.4 * fS);
+        DrawStrokePoly(rRenderContext, { { x + w * 0.5, y + bh + 2 }, { x + w * 0.5, y + h * 0.55 } }, false, aColor, 1.3 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 5.5 * fS, y + h - bh - 3 }, { x + 5.5 * fS, y + h * 0.55 }, { x + w - 5.5 * fS, y + h * 0.55 }, { x + w - 5.5 * fS, y + h - bh - 3 } }, false, aColor, 1.3 * fS);
+    }
+    else if (nKind == 5)
+    {
+        const double cx = x + w * 0.5;
+        const double rx = w * 0.34;
+        const double ry = h * 0.14;
+        const double yTop = y + h * 0.24;
+        const double yMid = y + h * 0.52;
+        const double yBot = y + h * 0.78;
+        basegfx::B2DPolygon aTop = basegfx::utils::createPolygonFromEllipse(basegfx::B2DPoint(cx, yTop), rx, ry);
+        rRenderContext.SetLineColor();
+        rRenderContext.SetFillColor(COL_SURFACE_WHITE);
+        rRenderContext.DrawPolygon(aTop);
+        rRenderContext.SetFillColor();
+        rRenderContext.SetLineColor(aColor);
+        rRenderContext.DrawPolyLine(aTop, 1.4 * fS, basegfx::B2DLineJoin::Round);
+        DrawStrokePoly(rRenderContext, { { cx - rx, yTop }, { cx - rx, yBot } }, false, aColor, 1.4 * fS);
+        DrawStrokePoly(rRenderContext, { { cx + rx, yTop }, { cx + rx, yBot } }, false, aColor, 1.4 * fS);
+        DrawDownArc(rRenderContext, cx, yMid, rx, ry * 1.4, aColor, 1.3 * fS);
+        DrawDownArc(rRenderContext, cx, yBot, rx, ry * 1.4, aColor, 1.4 * fS);
+    }
+    else if (nKind == 6)
+    {
+        DrawStrokePoly(rRenderContext, {
+            { x + w * 0.78, y + h * 0.28 },
+            { x + w * 0.78, y + h * 0.16 },
+            { x + w * 0.20, y + h * 0.16 },
+            { x + w * 0.54, y + h * 0.50 },
+            { x + w * 0.20, y + h * 0.84 },
+            { x + w * 0.78, y + h * 0.84 },
+            { x + w * 0.78, y + h * 0.72 }
+        }, false, aColor, 1.6 * fS);
     }
     else
     {
         const double fold = w * 0.28;
         DrawStrokePoly(rRenderContext, {
-            { x + 3, y + 1 },
-            { x + w - 3 - fold, y + 1 },
-            { x + w - 3, y + 1 + fold },
-            { x + w - 3, y + h - 1 },
-            { x + 3, y + h - 1 }
-        }, true, aColor, 1.6);
-        DrawStrokePoly(rRenderContext, { { x + 6.5, y + h * 0.46 }, { x + w - 6.5, y + h * 0.46 } }, false, aColor, 1.5);
-        DrawStrokePoly(rRenderContext, { { x + 6.5, y + h * 0.64 }, { x + w - 6.5, y + h * 0.64 } }, false, aColor, 1.5);
-        DrawStrokePoly(rRenderContext, { { x + 6.5, y + h * 0.80 }, { x + w * 0.62, y + h * 0.80 } }, false, aColor, 1.5);
+            { x + 3 * fS, y + fS },
+            { x + w - 3 * fS - fold, y + fS },
+            { x + w - 3 * fS, y + fS + fold },
+            { x + w - 3 * fS, y + h - fS },
+            { x + 3 * fS, y + h - fS }
+        }, true, aColor, 1.6 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 6.5 * fS, y + h * 0.46 }, { x + w - 6.5 * fS, y + h * 0.46 } }, false, aColor, 1.5 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 6.5 * fS, y + h * 0.64 }, { x + w - 6.5 * fS, y + h * 0.64 } }, false, aColor, 1.5 * fS);
+        DrawStrokePoly(rRenderContext, { { x + 6.5 * fS, y + h * 0.80 }, { x + w * 0.62, y + h * 0.80 } }, false, aColor, 1.5 * fS);
     }
 }
 
@@ -316,6 +398,7 @@ private:
     BackingWindow& mrOwner;
     Bitmap maLogoBitmap;
     tools::Long mnLoadedWidth = 0;
+    double mfScale = 1.0;
 
     void EnsureLogoLoaded(int nTargetLogoWidth)
     {
@@ -337,14 +420,15 @@ public:
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_SURFACE_WHITE));
-        pDrawingArea->set_size_request(-1, 88);
+        pDrawingArea->set_size_request(-1, Sx(76, mfScale));
         SetPointer(PointerStyle::RefHand);
     }
 
     virtual void Resize() override
     {
-        EnsureLogoLoaded(248);
+        EnsureLogoLoaded(Sx(224, mfScale));
         weld::CustomWidgetController::Resize();
     }
 
@@ -359,6 +443,7 @@ public:
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
         rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+        mfScale = GetScale(rRenderContext);
 
         const Size aSize = GetOutputSizePixel();
         const tools::Long w = aSize.Width();
@@ -369,66 +454,69 @@ public:
         // Top-right sweeping curved corner accents (red outer wave + navy inner corner)
         {
             basegfx::B2DPolygon aRedWave;
-            aRedWave.append(basegfx::B2DPoint(std::max<double>(w * 0.72, w - 270.0), h - 1));
+            aRedWave.append(basegfx::B2DPoint(std::max<double>(w * 0.74, w - 245.0 * mfScale), h - 1));
             aRedWave.appendBezierSegment(
-                basegfx::B2DPoint(std::max<double>(w * 0.85, w - 145.0), h * 0.72),
-                basegfx::B2DPoint(std::max<double>(w * 0.94, w - 58.0), h * 0.36),
+                basegfx::B2DPoint(std::max<double>(w * 0.86, w - 135.0 * mfScale), h * 0.72),
+                basegfx::B2DPoint(std::max<double>(w * 0.94, w - 54.0 * mfScale), h * 0.36),
                 basegfx::B2DPoint(w, 0));
             aRedWave.append(basegfx::B2DPoint(w, h * 0.62));
             aRedWave.appendBezierSegment(
-                basegfx::B2DPoint(std::max<double>(w * 0.93, w - 68.0), h * 0.78),
-                basegfx::B2DPoint(std::max<double>(w * 0.85, w - 150.0), h - 1),
-                basegfx::B2DPoint(std::max<double>(w * 0.72, w - 270.0), h - 1));
+                basegfx::B2DPoint(std::max<double>(w * 0.93, w - 64.0 * mfScale), h * 0.78),
+                basegfx::B2DPoint(std::max<double>(w * 0.86, w - 140.0 * mfScale), h - 1),
+                basegfx::B2DPoint(std::max<double>(w * 0.74, w - 245.0 * mfScale), h - 1));
             aRedWave.setClosed(true);
             rRenderContext.SetLineColor();
             rRenderContext.SetFillColor(COL_RED_BRAND);
             rRenderContext.DrawPolygon(aRedWave);
 
             basegfx::B2DPolygon aNavyWave;
-            aNavyWave.append(basegfx::B2DPoint(std::max<double>(w * 0.78, w - 210.0), h - 1));
+            aNavyWave.append(basegfx::B2DPoint(std::max<double>(w * 0.79, w - 190.0 * mfScale), h - 1));
             aNavyWave.appendBezierSegment(
-                basegfx::B2DPoint(std::max<double>(w * 0.88, w - 110.0), h * 0.68),
-                basegfx::B2DPoint(std::max<double>(w * 0.95, w - 42.0), h * 0.32),
+                basegfx::B2DPoint(std::max<double>(w * 0.89, w - 100.0 * mfScale), h * 0.68),
+                basegfx::B2DPoint(std::max<double>(w * 0.95, w - 38.0 * mfScale), h * 0.32),
                 basegfx::B2DPoint(w, 0));
             aNavyWave.append(basegfx::B2DPoint(w, h * 0.40));
             aNavyWave.appendBezierSegment(
-                basegfx::B2DPoint(std::max<double>(w * 0.96, w - 34.0), h * 0.56),
-                basegfx::B2DPoint(std::max<double>(w * 0.89, w - 102.0), h * 0.82),
-                basegfx::B2DPoint(std::max<double>(w * 0.81, w - 180.0), h - 1));
+                basegfx::B2DPoint(std::max<double>(w * 0.96, w - 32.0 * mfScale), h * 0.56),
+                basegfx::B2DPoint(std::max<double>(w * 0.90, w - 92.0 * mfScale), h * 0.82),
+                basegfx::B2DPoint(std::max<double>(w * 0.82, w - 165.0 * mfScale), h - 1));
             aNavyWave.setClosed(true);
             rRenderContext.SetFillColor(COL_NAVY_DARK);
             rRenderContext.DrawPolygon(aNavyWave);
         }
 
         // Approved OfficeStudio AI wordmark logo on the left
-        EnsureLogoLoaded(248);
-        tools::Long nDivX = 28;
+        EnsureLogoLoaded(Sx(224, mfScale));
+        tools::Long nDivX = Sx(24, mfScale);
         if (!maLogoBitmap.IsEmpty())
         {
             const Size aImg = maLogoBitmap.GetSizePixel();
-            const tools::Long nDrawH = 34;
+            const tools::Long nDrawH = Sx(30, mfScale);
             const tools::Long nDrawW = aImg.Height() > 0
-                ? std::max<tools::Long>(160, (nDrawH * aImg.Width()) / aImg.Height())
-                : 248;
-            const tools::Long nLogoX = 28;
+                ? std::max<tools::Long>(Sx(145, mfScale), (nDrawH * aImg.Width()) / aImg.Height())
+                : Sx(218, mfScale);
+            const tools::Long nLogoX = Sx(24, mfScale);
             const tools::Long nLogoY = (h - nDrawH) / 2;
             rRenderContext.DrawBitmap(Point(nLogoX, nLogoY), Size(nDrawW, nDrawH), maLogoBitmap);
-            nDivX = nLogoX + nDrawW + 22;
+            nDivX = nLogoX + nDrawW + Sx(20, mfScale);
         }
 
         // Vertical divider + muted tagline wrapped cleanly in 2 lines
-        const tools::Long nRightLimit = std::max<tools::Long>(nDivX + 20, w - 205);
-        if (nRightLimit - nDivX > 120)
+        const tools::Long nRightLimit = std::max<tools::Long>(nDivX + Sx(20, mfScale), w - Sx(180, mfScale));
+        if (nRightLimit - nDivX > Sx(120, mfScale))
         {
-            DrawStrokePoly(rRenderContext, { { static_cast<double>(nDivX), 22.0 }, { static_cast<double>(nDivX), h - 22.0 } },
-                           false, Color(0xD5, 0xDC, 0xE6), 1.0);
+            const tools::Long nDivPadY = Sx(18, mfScale);
+            DrawStrokePoly(rRenderContext, { { static_cast<double>(nDivX), static_cast<double>(nDivPadY) },
+                                             { static_cast<double>(nDivX), static_cast<double>(h - nDivPadY) } },
+                           false, Color(0xD5, 0xDC, 0xE6), 1.0 * mfScale);
 
-            rRenderContext.SetFont(MakeUiFont(13, WEIGHT_NORMAL));
+            rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_NORMAL));
             rRenderContext.SetTextColor(COL_TEXT_MUTED);
-            const tools::Long nTagW = std::min<tools::Long>(340, nRightLimit - (nDivX + 20));
-            tools::Rectangle aTagRect(Point(nDivX + 20, 16), Size(nTagW, h - 32));
+            const tools::Long nTagPadX = Sx(18, mfScale);
+            const tools::Long nTagW = std::min<tools::Long>(Sx(390, mfScale), nRightLimit - (nDivX + nTagPadX));
+            tools::Rectangle aTagRect(Point(nDivX + nTagPadX, Sx(12, mfScale)), Size(nTagW, h - Sx(24, mfScale)));
             rRenderContext.DrawText(aTagRect,
-                u"A modern, powerful office suite for documents, spreadsheets, presentations, and diagrams."_ustr,
+                u"A modern, powerful office suite for documents, spreadsheets, presentations, diagrams, and databases."_ustr,
                 DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::WordBreak | DrawTextFlags::MultiLine);
         }
 
@@ -447,6 +535,7 @@ private:
     int mnHoveredIdx = -1; // 0:Home, 1:Recent, 2:Templates, 3:Open, 4:Remote, 5:Help
     int mnFocusedIdx = 0;
     bool mbRemoteEnabled = true;
+    double mfScale = 1.0;
 
     struct NavHit
     {
@@ -460,22 +549,22 @@ private:
         const tools::Long w = aSz.Width();
         const tools::Long h = aSz.Height();
         std::vector<NavHit> aOut;
-        const tools::Long nPadX = 14;
-        const tools::Long nItemW = std::max<tools::Long>(60, w - 2 * nPadX);
-        const tools::Long nItemH = 40;
-        const tools::Long nGap = 6;
-        tools::Long y = 20;
+        const tools::Long nPadX = Sx(12, mfScale);
+        const tools::Long nItemW = std::max<tools::Long>(Sx(60, mfScale), w - 2 * nPadX);
+        const tools::Long nItemH = Sx(38, mfScale);
+        const tools::Long nGap = Sx(6, mfScale);
+        tools::Long y = Sx(16, mfScale);
         for (int i = 0; i < 4; ++i)
         {
             aOut.push_back({ i, tools::Rectangle(Point(nPadX, y), Size(nItemW, nItemH)) });
             y += nItemH + nGap;
         }
-        if (h > 290)
+        if (h > Sx(275, mfScale))
         {
-            tools::Long uy = h - 42;
-            aOut.push_back({ 5, tools::Rectangle(Point(nPadX, uy), Size(nItemW, 30)) });
-            if (mbRemoteEnabled && h > 330)
-                aOut.push_back({ 4, tools::Rectangle(Point(nPadX, uy - 34), Size(nItemW, 30)) });
+            tools::Long uy = h - Sx(40, mfScale);
+            aOut.push_back({ 5, tools::Rectangle(Point(nPadX, uy), Size(nItemW, Sx(30, mfScale))) });
+            if (mbRemoteEnabled && h > Sx(315, mfScale))
+                aOut.push_back({ 4, tools::Rectangle(Point(nPadX, uy - Sx(34, mfScale)), Size(nItemW, Sx(30, mfScale))) });
         }
         return aOut;
     }
@@ -506,48 +595,99 @@ private:
             mrOwner.triggerHelp();
     }
 
+    static Color NavAccentColor(int nId)
+    {
+        switch (nId)
+        {
+            case 0: return Color(0x25, 0x63, 0xEB); // Home: Royal Blue
+            case 1: return Color(0xEA, 0x58, 0x0C); // Recent: Warm Orange
+            case 2: return Color(0x7C, 0x3A, 0xED); // Templates: Vibrant Purple
+            case 3: return Color(0x16, 0xA3, 0x4A); // Open: Emerald Green
+            case 4: return Color(0x0D, 0x94, 0x88); // Remote Files: Teal
+            default: return Color(0x02, 0x84, 0xC7); // Help: Sky Blue
+        }
+    }
+
+    static Color NavActiveFillColor(int nId)
+    {
+        switch (nId)
+        {
+            case 0: return Color(0xE8, 0xF1, 0xFD);
+            case 1: return Color(0xFF, 0xF1, 0xE6);
+            default: return Color(0xF3, 0xEC, 0xFE);
+        }
+    }
+
+    static Color NavActiveBorderColor(int nId)
+    {
+        switch (nId)
+        {
+            case 0: return Color(0xBF, 0xDB, 0xFE);
+            case 1: return Color(0xFE, 0xD7, 0xAA);
+            default: return Color(0xDD, 0xD6, 0xFE);
+        }
+    }
+
+    static Color NavActiveTextColor(int nId)
+    {
+        switch (nId)
+        {
+            case 0: return Color(0x1E, 0x40, 0xAF);
+            case 1: return Color(0x9A, 0x34, 0x12);
+            default: return Color(0x5B, 0x21, 0xB6);
+        }
+    }
+
     void DrawNavIcon(vcl::RenderContext& rRenderContext, int nId, const tools::Rectangle& rRect, Color aCol) const
     {
-        const double cx = rRect.Left() + 24.0;
+        const double cx = rRect.Left() + 24.0 * mfScale;
         const double cy = rRect.Top() + rRect.GetHeight() / 2.0;
+        const double fS = mfScale;
         if (nId == 0) // House
         {
             DrawStrokePoly(rRenderContext, {
-                { cx - 7, cy - 1 }, { cx, cy - 7 }, { cx + 7, cy - 1 }
-            }, false, aCol, 1.8);
+                { cx - 7 * fS, cy - 0.5 * fS }, { cx, cy - 7 * fS }, { cx + 7 * fS, cy - 0.5 * fS }
+            }, false, aCol, 1.9 * fS);
             DrawStrokePoly(rRenderContext, {
-                { cx - 5, cy - 2 }, { cx - 5, cy + 6 }, { cx + 5, cy + 6 }, { cx + 5, cy - 2 }
-            }, false, aCol, 1.8);
+                { cx - 5 * fS, cy - 1.5 * fS }, { cx - 5 * fS, cy + 6.5 * fS }, { cx + 5 * fS, cy + 6.5 * fS }, { cx + 5 * fS, cy - 1.5 * fS }
+            }, false, aCol, 1.9 * fS);
+            DrawStrokePoly(rRenderContext, {
+                { cx - 1.6 * fS, cy + 6.5 * fS }, { cx - 1.6 * fS, cy + 2.5 * fS }, { cx + 1.6 * fS, cy + 2.5 * fS }, { cx + 1.6 * fS, cy + 6.5 * fS }
+            }, false, aCol, 1.5 * fS);
         }
         else if (nId == 1) // Clock
         {
-            DrawCircleStroke(rRenderContext, cx, cy, 7.0, aCol, 1.7);
-            DrawStrokePoly(rRenderContext, { { cx, cy - 4 }, { cx, cy }, { cx + 3.5, cy + 2 } }, false, aCol, 1.7);
+            DrawCircleStroke(rRenderContext, cx, cy, 7.0 * fS, aCol, 1.9 * fS);
+            DrawStrokePoly(rRenderContext, { { cx, cy - 4 * fS }, { cx, cy }, { cx + 3.5 * fS, cy + 2 * fS } }, false, aCol, 1.8 * fS);
         }
         else if (nId == 2) // Layers / Templates
         {
-            DrawStrokePoly(rRenderContext, { { cx, cy - 7 }, { cx + 7, cy - 3.5 }, { cx, cy }, { cx - 7, cy - 3.5 } }, true, aCol, 1.6);
-            DrawStrokePoly(rRenderContext, { { cx - 7, cy + 0.5 }, { cx, cy + 4 }, { cx + 7, cy + 0.5 } }, false, aCol, 1.6);
-            DrawStrokePoly(rRenderContext, { { cx - 7, cy + 4.5 }, { cx, cy + 8 }, { cx + 7, cy + 4.5 } }, false, aCol, 1.6);
+            DrawStrokePoly(rRenderContext, { { cx, cy - 7 * fS }, { cx + 7 * fS, cy - 3.5 * fS }, { cx, cy }, { cx - 7 * fS, cy - 3.5 * fS } }, true, aCol, 1.8 * fS);
+            DrawStrokePoly(rRenderContext, { { cx - 7 * fS, cy + 0.5 * fS }, { cx, cy + 4 * fS }, { cx + 7 * fS, cy + 0.5 * fS } }, false, aCol, 1.8 * fS);
+            DrawStrokePoly(rRenderContext, { { cx - 7 * fS, cy + 4.5 * fS }, { cx, cy + 8 * fS }, { cx + 7 * fS, cy + 4.5 * fS } }, false, aCol, 1.8 * fS);
         }
         else if (nId == 3) // Open folder
         {
             DrawStrokePoly(rRenderContext, {
-                { cx - 7, cy - 6 }, { cx - 2, cy - 6 }, { cx, cy - 4 },
-                { cx + 7, cy - 4 }, { cx + 7, cy + 6 }, { cx - 7, cy + 6 }
-            }, true, aCol, 1.7);
+                { cx - 7 * fS, cy - 6 * fS }, { cx - 2 * fS, cy - 6 * fS }, { cx, cy - 4 * fS },
+                { cx + 7 * fS, cy - 4 * fS }, { cx + 7 * fS, cy + 6 * fS }, { cx - 7 * fS, cy + 6 * fS }
+            }, true, aCol, 1.85 * fS);
+            DrawStrokePoly(rRenderContext, { { cx - 6 * fS, cy - 1 * fS }, { cx + 6 * fS, cy - 1 * fS } }, false, aCol, 1.4 * fS);
         }
         else if (nId == 4) // Globe / Remote
         {
-            DrawCircleStroke(rRenderContext, cx, cy, 6.0, aCol, 1.5);
-            DrawStrokePoly(rRenderContext, { { cx - 6, cy }, { cx + 6, cy } }, false, aCol, 1.4);
-            DrawStrokePoly(rRenderContext, { { cx, cy - 6 }, { cx, cy + 6 } }, false, aCol, 1.3);
+            DrawCircleStroke(rRenderContext, cx, cy, 6.5 * fS, aCol, 1.7 * fS);
+            DrawStrokePoly(rRenderContext, { { cx - 6.5 * fS, cy }, { cx + 6.5 * fS, cy } }, false, aCol, 1.5 * fS);
+            basegfx::B2DPolygon aMeridian = basegfx::utils::createPolygonFromEllipse(basegfx::B2DPoint(cx, cy), 3.0 * fS, 6.5 * fS);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(aCol);
+            rRenderContext.DrawPolyLine(aMeridian, 1.4 * fS, basegfx::B2DLineJoin::Round);
         }
         else if (nId == 5) // Help circle
         {
-            DrawCircleStroke(rRenderContext, cx, cy, 6.0, aCol, 1.5);
-            DrawStrokePoly(rRenderContext, { { cx - 2, cy - 2 }, { cx, cy - 3.5 }, { cx + 2, cy - 2 }, { cx, cy + 0.5 } }, false, aCol, 1.4);
-            FillSolidRect(rRenderContext, tools::Rectangle(Point(static_cast<tools::Long>(cx), static_cast<tools::Long>(cy + 3)), Size(2, 2)), aCol);
+            DrawCircleStroke(rRenderContext, cx, cy, 6.5 * fS, aCol, 1.7 * fS);
+            DrawStrokePoly(rRenderContext, { { cx - 2 * fS, cy - 2 * fS }, { cx, cy - 3.5 * fS }, { cx + 2 * fS, cy - 2 * fS }, { cx, cy + 0.5 * fS } }, false, aCol, 1.5 * fS);
+            FillSolidRect(rRenderContext, tools::Rectangle(Point(static_cast<tools::Long>(cx - fS * 0.5), static_cast<tools::Long>(cy + 2.8 * fS)), Size(Sx(2, fS), Sx(2, fS))), aCol);
         }
     }
 
@@ -568,7 +708,9 @@ public:
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_NAV_BG));
+        pDrawingArea->set_size_request(Sx(188, mfScale), -1);
         SetPointer(PointerStyle::RefHand);
     }
 
@@ -626,11 +768,19 @@ public:
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
         rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+        mfScale = GetScale(rRenderContext);
         const Size aSz = GetOutputSizePixel();
 
         FillSolidRect(rRenderContext, tools::Rectangle(Point(0, 0), aSz), COL_NAV_BG);
         DrawStrokePoly(rRenderContext, { { static_cast<double>(aSz.Width() - 1), 0.0 }, { static_cast<double>(aSz.Width() - 1), static_cast<double>(aSz.Height()) } },
                        false, COL_BORDER, 1.0);
+
+        if (aSz.Height() > Sx(275, mfScale))
+        {
+            const double fSepY = static_cast<double>(aSz.Height() - Sx(82, mfScale));
+            DrawStrokePoly(rRenderContext, { { static_cast<double>(Sx(14, mfScale)), fSepY }, { static_cast<double>(aSz.Width() - Sx(14, mfScale)), fSepY } },
+                           false, Color(0xE2, 0xE8, 0xF0), 1.0);
+        }
 
         const int nActiveId = meActiveMode == StartCenterMode::Home ? 0
                             : (meActiveMode == StartCenterMode::Recent ? 1 : 2);
@@ -639,16 +789,25 @@ public:
         {
             const bool bActive = (item.nId == nActiveId);
             const bool bHover = (item.nId == mnHoveredIdx);
+            const Color aAccent = NavAccentColor(item.nId);
+
             if (bActive)
-                DrawRoundedBox(rRenderContext, item.aRect, 8.0, COL_NAVY, COL_TRANSPARENT, 0.0);
+            {
+                DrawRoundedBox(rRenderContext, item.aRect, 8.0 * mfScale, NavActiveFillColor(item.nId), NavActiveBorderColor(item.nId), 1.0 * mfScale);
+                tools::Rectangle aBar(
+                    Point(item.aRect.Left() + Sx(3, mfScale), item.aRect.Top() + Sx(7, mfScale)),
+                    Size(std::max<tools::Long>(3, Sx(3, mfScale)), std::max<tools::Long>(8, item.aRect.GetHeight() - Sx(14, mfScale))));
+                DrawRoundedBox(rRenderContext, aBar, 2.0 * mfScale, aAccent, COL_TRANSPARENT, 0.0);
+            }
             else if (bHover)
-                DrawRoundedBox(rRenderContext, item.aRect, 8.0, COL_NAV_HOVER, COL_TRANSPARENT, 0.0);
+            {
+                DrawRoundedBox(rRenderContext, item.aRect, 8.0 * mfScale, COL_NAV_HOVER, COL_TRANSPARENT, 0.0);
+            }
 
             if (HasFocus() && item.nId == mnFocusedIdx && !bActive)
-                DrawRoundedBox(rRenderContext, item.aRect, 8.0, COL_TRANSPARENT, COL_BORDER_HOVER, 1.2);
+                DrawRoundedBox(rRenderContext, item.aRect, 8.0 * mfScale, COL_TRANSPARENT, COL_BORDER_HOVER, 1.2 * mfScale);
 
-            Color aFg = bActive ? COL_SURFACE_WHITE : (item.nId >= 4 ? COL_TEXT_MUTED : COL_TEXT_PRIMARY);
-            DrawNavIcon(rRenderContext, item.nId, item.aRect, aFg);
+            DrawNavIcon(rRenderContext, item.nId, item.aRect, aAccent);
 
             OUString sLabel;
             if (item.nId == 0) sLabel = u"Home"_ustr;
@@ -658,41 +817,66 @@ public:
             else if (item.nId == 4) sLabel = u"Remote Files"_ustr;
             else sLabel = u"Help"_ustr;
 
-            const int nFontH = item.nId >= 4 ? 13 : 14;
+            const Color aTxtCol = bActive
+                ? NavActiveTextColor(item.nId)
+                : (item.nId >= 4 ? Color(0x47, 0x55, 0x69) : Color(0x1E, 0x29, 0x3B));
+            const int nFontH = Sx(item.nId >= 4 ? 13 : 14, mfScale);
             rRenderContext.SetFont(MakeUiFont(nFontH, bActive ? WEIGHT_SEMIBOLD : WEIGHT_NORMAL));
-            rRenderContext.SetTextColor(aFg);
-            tools::Rectangle aTxtRect(item.aRect.Left() + 44, item.aRect.Top(), item.aRect.Right() - 8, item.aRect.Bottom());
-            rRenderContext.DrawText(aTxtRect, sLabel, DrawTextFlags::Left | DrawTextFlags::VCenter);
+            rRenderContext.SetTextColor(aTxtCol);
+            tools::Rectangle aTxtRect(item.aRect.Left() + Sx(44, mfScale), item.aRect.Top(), item.aRect.Right() - Sx(8, mfScale), item.aRect.Bottom());
+            rRenderContext.DrawText(aTxtRect, sLabel, DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
         }
     }
 };
 
 // ---------------------------------------------------------------------------
-// CreateCardsWidget: "Create New" heading + 4 color-accented app cards
+// CreateCardsWidget: "Applications" heading + 3x3 grid of app cards (6 active apps + 3 Coming soon)
 // ---------------------------------------------------------------------------
 class CreateCardsWidget final : public weld::CustomWidgetController
 {
 private:
+    static constexpr int CARD_COUNT = 9;
     BackingWindow& mrOwner;
     int mnHoveredCard = -1;
     int mnFocusedCard = 0;
-    std::array<bool, 4> maEnabled = { true, true, true, true };
+    double mfScale = 1.0;
+    std::array<bool, CARD_COUNT> maEnabled = {
+        true,  true,  true,   // Row 1: Docs, Spreadsheet, SlideShows
+        false, true,  true,   // Row 2: eMail (Coming soon), Design, Database
+        false, false, true    // Row 3: eSign (Coming soon), PDF (Coming soon), Math
+    };
+
+    static bool IsComingSoonCard(int nIndex)
+    {
+        return nIndex == 3 || nIndex == 6 || nIndex == 7;
+    }
+
+    bool IsCardInteractive(int nIndex) const
+    {
+        return nIndex >= 0 && nIndex < CARD_COUNT && !IsComingSoonCard(nIndex) && maEnabled[nIndex];
+    }
 
     tools::Rectangle GetCardRect(int nIndex) const
     {
         const Size aSz = GetOutputSizePixel();
-        const tools::Long nPadX = 28;
-        const tools::Long nGap = 14;
-        const tools::Long nAvailW = std::max<tools::Long>(320, aSz.Width() - 2 * nPadX - 3 * nGap);
-        const tools::Long nCardW = nAvailW / 4;
-        const tools::Long nTop = 48;
-        const tools::Long nCardH = std::max<tools::Long>(110, aSz.Height() - nTop - 14);
-        return tools::Rectangle(Point(nPadX + nIndex * (nCardW + nGap), nTop), Size(nCardW, nCardH));
+        const int row = nIndex / 3;
+        const int col = nIndex % 3;
+        const tools::Long nPadX = Sx(24, mfScale);
+        const tools::Long nGapX = Sx(16, mfScale);
+        const tools::Long nTop = Sx(34, mfScale);
+        const tools::Long nGapY = Sx(12, mfScale);
+        const tools::Long nPadBot = Sx(6, mfScale);
+        const tools::Long nAvailW = std::max<tools::Long>(Sx(360, mfScale), aSz.Width() - 2 * nPadX - 2 * nGapX);
+        const tools::Long nCardW = nAvailW / 3;
+        const tools::Long nCardH = std::max<tools::Long>(Sx(100, mfScale), (aSz.Height() - nTop - 2 * nGapY - nPadBot) / 3);
+        return tools::Rectangle(
+            Point(nPadX + col * (nCardW + nGapX), nTop + row * (nCardH + nGapY)),
+            Size(nCardW, nCardH));
     }
 
     int HitTest(const Point& rPos) const
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < CARD_COUNT; ++i)
         {
             if (GetCardRect(i).Contains(rPos))
                 return i;
@@ -704,50 +888,183 @@ private:
     {
         const double x = nCx;
         const double y = nCy;
+        const double fS = mfScale;
+        const double fStroke = 2.6 * mfScale;
         if (nIdx == 0) // Docs
         {
-            const double w = 30, h = 38, fold = 9;
+            const double w = 30 * fS, h = 38 * fS, fold = 9 * fS;
             DrawStrokePoly(rRenderContext, {
                 { x - w / 2, y - h / 2 },
                 { x + w / 2 - fold, y - h / 2 },
                 { x + w / 2, y - h / 2 + fold },
                 { x + w / 2, y + h / 2 },
                 { x - w / 2, y + h / 2 }
-            }, true, aAccent, 2.5);
-            DrawStrokePoly(rRenderContext, { { x + w / 2 - fold, y - h / 2 }, { x + w / 2 - fold, y - h / 2 + fold }, { x + w / 2, y - h / 2 + fold } }, false, aAccent, 2.0);
-            DrawStrokePoly(rRenderContext, { { x - 8, y - 3 }, { x + 8, y - 3 } }, false, aAccent, 2.3);
-            DrawStrokePoly(rRenderContext, { { x - 8, y + 4 }, { x + 8, y + 4 } }, false, aAccent, 2.3);
-            DrawStrokePoly(rRenderContext, { { x - 8, y + 11 }, { x + 2, y + 11 } }, false, aAccent, 2.3);
+            }, true, aAccent, fStroke);
+            DrawStrokePoly(rRenderContext, { { x + w / 2 - fold, y - h / 2 }, { x + w / 2 - fold, y - h / 2 + fold }, { x + w / 2, y - h / 2 + fold } }, false, aAccent, 2.1 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - 8 * fS, y - 2.5 * fS }, { x + 8 * fS, y - 2.5 * fS } }, false, aAccent, 2.3 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - 8 * fS, y + 4.5 * fS }, { x + 8 * fS, y + 4.5 * fS } }, false, aAccent, 2.3 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - 8 * fS, y + 11.5 * fS }, { x + 2.5 * fS, y + 11.5 * fS } }, false, aAccent, 2.3 * mfScale);
         }
         else if (nIdx == 1) // Spreadsheet
         {
-            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - 17, nCy - 17), Size(34, 34)), 5.0, COL_SURFACE_WHITE, aAccent, 2.4);
-            DrawStrokePoly(rRenderContext, { { x - 17, y - 6 }, { x + 17, y - 6 } }, false, aAccent, 2.2);
-            DrawStrokePoly(rRenderContext, { { x - 17, y + 5 }, { x + 17, y + 5 } }, false, aAccent, 2.2);
-            DrawStrokePoly(rRenderContext, { { x - 6, y - 17 }, { x - 6, y + 17 } }, false, aAccent, 2.2);
-            DrawStrokePoly(rRenderContext, { { x + 6, y - 17 }, { x + 6, y + 17 } }, false, aAccent, 2.2);
+            const tools::Long hw = Sx(18, fS);
+            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - hw, nCy - hw), Size(2 * hw, 2 * hw)), 5.0 * mfScale, COL_SURFACE_WHITE, aAccent, fStroke);
+            DrawStrokePoly(rRenderContext, { { x - hw, y - 6 * fS }, { x + hw, y - 6 * fS } }, false, aAccent, 2.2 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - hw, y + 6 * fS }, { x + hw, y + 6 * fS } }, false, aAccent, 2.2 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - 6 * fS, y - hw }, { x - 6 * fS, y + hw } }, false, aAccent, 2.2 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x + 6 * fS, y - hw }, { x + 6 * fS, y + hw } }, false, aAccent, 2.2 * mfScale);
         }
         else if (nIdx == 2) // SlideShows
         {
-            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - 19, nCy - 14), Size(38, 26)), 5.0, COL_SURFACE_WHITE, aAccent, 2.5);
-            DrawStrokePoly(rRenderContext, { { x, y - 18 }, { x, y - 14 } }, false, aAccent, 2.4);
-            DrawStrokePoly(rRenderContext, { { x - 8, y + 19 }, { x, y + 12 }, { x + 8, y + 19 } }, false, aAccent, 2.4);
+            const tools::Long bw = Sx(40, fS);
+            const tools::Long bh = Sx(26, fS);
+            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - bw / 2, nCy - Sx(13, fS)), Size(bw, bh)), 5.0 * mfScale, COL_SURFACE_WHITE, aAccent, fStroke);
+            DrawStrokePoly(rRenderContext, { { x, y - 18 * fS }, { x, y - 13 * fS } }, false, aAccent, 2.4 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x - 8 * fS, y + 20 * fS }, { x, y + 13 * fS }, { x + 8 * fS, y + 20 * fS } }, false, aAccent, 2.4 * mfScale);
             basegfx::B2DPolygon aPlay;
-            aPlay.append(basegfx::B2DPoint(x - 4, y - 7));
-            aPlay.append(basegfx::B2DPoint(x - 4, y + 5));
-            aPlay.append(basegfx::B2DPoint(x + 7, y - 1));
+            aPlay.append(basegfx::B2DPoint(x - 4 * fS, y - 6 * fS));
+            aPlay.append(basegfx::B2DPoint(x - 4 * fS, y + 6 * fS));
+            aPlay.append(basegfx::B2DPoint(x + 7 * fS, y));
             aPlay.setClosed(true);
             rRenderContext.SetLineColor();
             rRenderContext.SetFillColor(aAccent);
             rRenderContext.DrawPolygon(aPlay);
         }
-        else // FlowCharts
+        else if (nIdx == 3) // eMail (rounded envelope + V flap)
         {
-            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - 8, nCy - 18), Size(16, 11)), 3.0, COL_SURFACE_WHITE, aAccent, 2.3);
-            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - 20, nCy + 6), Size(16, 11)), 3.0, COL_SURFACE_WHITE, aAccent, 2.3);
-            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx + 4, nCy + 6), Size(16, 11)), 3.0, COL_SURFACE_WHITE, aAccent, 2.3);
-            DrawStrokePoly(rRenderContext, { { x, y - 7 }, { x, y - 1 } }, false, aAccent, 2.3);
-            DrawStrokePoly(rRenderContext, { { x - 12, y + 6 }, { x - 12, y - 1 }, { x + 12, y - 1 }, { x + 12, y + 6 } }, false, aAccent, 2.3);
+            const tools::Long ew = Sx(42, fS);
+            const tools::Long eh = Sx(28, fS);
+            DrawRoundedBox(rRenderContext, tools::Rectangle(Point(nCx - ew / 2, nCy - eh / 2), Size(ew, eh)),
+                           4.5 * mfScale, COL_SURFACE_WHITE, aAccent, fStroke);
+            DrawStrokePoly(rRenderContext, {
+                { x - ew * 0.45, y - eh * 0.36 },
+                { x, y + eh * 0.14 },
+                { x + ew * 0.45, y - eh * 0.36 }
+            }, false, aAccent, 2.5 * mfScale);
+        }
+        else if (nIdx == 4) // Design (purple drawing paintbrush tilted from top-right to bottom-left)
+        {
+            basegfx::B2DPolygon aBrush;
+            aBrush.append(basegfx::B2DPoint(x - 2.5 * fS, y - 1.5 * fS));
+            aBrush.append(basegfx::B2DPoint(x + 10.5 * fS, y - 15.0 * fS));
+            aBrush.appendBezierSegment(
+                basegfx::B2DPoint(x + 14.5 * fS, y - 16.5 * fS),
+                basegfx::B2DPoint(x + 16.5 * fS, y - 14.5 * fS),
+                basegfx::B2DPoint(x + 15.0 * fS, y - 10.5 * fS));
+            aBrush.append(basegfx::B2DPoint(x + 1.5 * fS, y + 2.5 * fS));
+            aBrush.setClosed(true);
+            rRenderContext.SetFillColor(COL_SURFACE_WHITE);
+            rRenderContext.SetLineColor(aAccent);
+            rRenderContext.DrawPolygon(aBrush);
+            rRenderContext.SetFillColor();
+            rRenderContext.DrawPolyLine(aBrush, 2.5 * mfScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+
+            DrawStrokePoly(rRenderContext, {
+                { x + 0.5 * fS, y - 4.5 * fS },
+                { x + 4.5 * fS, y - 0.5 * fS }
+            }, false, aAccent, 2.2 * mfScale);
+
+            basegfx::B2DPolygon aBristle;
+            aBristle.append(basegfx::B2DPoint(x - 2.5 * fS, y - 1.5 * fS));
+            aBristle.appendBezierSegment(
+                basegfx::B2DPoint(x - 8.5 * fS, y + 1.0 * fS),
+                basegfx::B2DPoint(x - 8.5 * fS, y + 8.5 * fS),
+                basegfx::B2DPoint(x - 14.5 * fS, y + 14.5 * fS));
+            aBristle.appendBezierSegment(
+                basegfx::B2DPoint(x - 5.5 * fS, y + 15.5 * fS),
+                basegfx::B2DPoint(x + 0.5 * fS, y + 9.5 * fS),
+                basegfx::B2DPoint(x + 1.5 * fS, y + 2.5 * fS));
+            rRenderContext.SetFillColor(COL_SURFACE_WHITE);
+            rRenderContext.SetLineColor(aAccent);
+            rRenderContext.DrawPolygon(aBristle);
+            rRenderContext.SetFillColor();
+            rRenderContext.DrawPolyLine(aBristle, 2.5 * mfScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+        }
+        else if (nIdx == 5) // Database (3-band stacked cylinder)
+        {
+            const double rx = 16.0 * fS;
+            const double ry = 5.0 * fS;
+            const double yTop = y - 13.0 * fS;
+            const double yMid1 = y - 4.0 * fS;
+            const double yMid2 = y + 5.0 * fS;
+            const double yBot = y + 14.0 * fS;
+            basegfx::B2DPolygon aTop = basegfx::utils::createPolygonFromEllipse(basegfx::B2DPoint(x, yTop), rx, ry);
+            rRenderContext.SetLineColor();
+            rRenderContext.SetFillColor(COL_SURFACE_WHITE);
+            rRenderContext.DrawPolygon(aTop);
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(aAccent);
+            rRenderContext.DrawPolyLine(aTop, 2.5 * mfScale, basegfx::B2DLineJoin::Round);
+            DrawStrokePoly(rRenderContext, { { x - rx, yTop }, { x - rx, yBot } }, false, aAccent, 2.5 * mfScale);
+            DrawStrokePoly(rRenderContext, { { x + rx, yTop }, { x + rx, yBot } }, false, aAccent, 2.5 * mfScale);
+            DrawDownArc(rRenderContext, x, yMid1, rx, ry * 1.4, aAccent, 2.3 * mfScale);
+            DrawDownArc(rRenderContext, x, yMid2, rx, ry * 1.4, aAccent, 2.3 * mfScale);
+            DrawDownArc(rRenderContext, x, yBot, rx, ry * 1.4, aAccent, 2.5 * mfScale);
+        }
+        else if (nIdx == 6) // eSign (tilted fountain pen + cursive Bezier signature)
+        {
+            DrawStrokePoly(rRenderContext, {
+                { x - 1.5 * fS, y + 3.0 * fS },
+                { x + 0.1 * fS, y - 3.2 * fS },
+                { x + 11.8 * fS, y - 14.8 * fS },
+                { x + 16.3 * fS, y - 10.3 * fS },
+                { x + 4.7 * fS, y + 1.4 * fS }
+            }, true, aAccent, 2.4 * mfScale);
+            DrawStrokePoly(rRenderContext, {
+                { x + 8.3 * fS, y - 11.3 * fS },
+                { x + 12.8 * fS, y - 6.8 * fS }
+            }, false, aAccent, 2.1 * mfScale);
+
+            basegfx::B2DPolygon aSig;
+            aSig.append(basegfx::B2DPoint(x - 18.0 * fS, y + 11.0 * fS));
+            aSig.appendBezierSegment(
+                basegfx::B2DPoint(x - 14.0 * fS, y - 2.0 * fS),
+                basegfx::B2DPoint(x - 10.0 * fS, y - 2.0 * fS),
+                basegfx::B2DPoint(x - 8.5 * fS, y + 9.0 * fS));
+            aSig.appendBezierSegment(
+                basegfx::B2DPoint(x - 7.0 * fS, y + 16.0 * fS),
+                basegfx::B2DPoint(x - 3.5 * fS, y + 7.0 * fS),
+                basegfx::B2DPoint(x + 2.0 * fS, y + 10.0 * fS));
+            aSig.appendBezierSegment(
+                basegfx::B2DPoint(x + 7.5 * fS, y + 13.0 * fS),
+                basegfx::B2DPoint(x + 12.5 * fS, y + 9.5 * fS),
+                basegfx::B2DPoint(x + 17.0 * fS, y + 11.0 * fS));
+            rRenderContext.SetFillColor();
+            rRenderContext.SetLineColor(aAccent);
+            rRenderContext.DrawPolyLine(aSig, 2.5 * mfScale, basegfx::B2DLineJoin::Round, css::drawing::LineCap_ROUND);
+        }
+        else if (nIdx == 7) // PDF (folded page + bold PDF text)
+        {
+            const double w = 34 * fS, h = 40 * fS, fold = 9 * fS;
+            DrawStrokePoly(rRenderContext, {
+                { x - w / 2, y - h / 2 },
+                { x + w / 2 - fold, y - h / 2 },
+                { x + w / 2, y - h / 2 + fold },
+                { x + w / 2, y + h / 2 },
+                { x - w / 2, y + h / 2 }
+            }, true, aAccent, fStroke);
+            DrawStrokePoly(rRenderContext, {
+                { x + w / 2 - fold, y - h / 2 },
+                { x + w / 2 - fold, y - h / 2 + fold },
+                { x + w / 2, y - h / 2 + fold }
+            }, false, aAccent, 2.1 * mfScale);
+            rRenderContext.SetFont(MakeUiFont(Sx(11, mfScale), WEIGHT_BOLD));
+            rRenderContext.SetTextColor(aAccent);
+            rRenderContext.DrawText(
+                tools::Rectangle(Point(nCx - Sx(16, fS), nCy - Sx(3, fS)), Size(Sx(32, fS), Sx(18, fS))),
+                u"PDF"_ustr, DrawTextFlags::Center | DrawTextFlags::VCenter);
+        }
+        else // Math (purple Sigma symbol)
+        {
+            DrawStrokePoly(rRenderContext, {
+                { x + 13.5 * fS, y - 11.0 * fS },
+                { x + 13.5 * fS, y - 15.5 * fS },
+                { x - 13.0 * fS, y - 15.5 * fS },
+                { x + 1.0 * fS,  y },
+                { x - 13.0 * fS, y + 15.5 * fS },
+                { x + 13.5 * fS, y + 15.5 * fS },
+                { x + 13.5 * fS, y + 11.0 * fS }
+            }, false, aAccent, 2.8 * mfScale);
         }
     }
 
@@ -757,30 +1074,47 @@ public:
     {
     }
 
-    void SetModuleStates(bool bDocs, bool bCalc, bool bImpress, bool bDraw)
+    void SetModuleStates(bool bDocs, bool bCalc, bool bImpress, bool bDraw, bool bDatabase, bool bMath)
     {
-        maEnabled = { bDocs, bCalc, bImpress, bDraw };
+        maEnabled = { bDocs, bCalc, bImpress, false, bDraw, bDatabase, false, false, bMath };
         Invalidate();
     }
 
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_SURFACE_WHITE));
-        pDrawingArea->set_size_request(-1, 196);
+        pDrawingArea->set_size_request(-1, Sx(408, mfScale));
+    }
+
+    virtual OUString RequestHelp(tools::Rectangle&) override
+    {
+        static const std::array<OUString, CARD_COUNT> aTips = {
+            u"Docs — Create text documents"_ustr,
+            u"Spreadsheet — Work with data and tables"_ustr,
+            u"SlideShows — Create presentations"_ustr,
+            u"eMail — Coming soon"_ustr,
+            u"Design — Create drawings, diagrams, and graphics"_ustr,
+            u"Database — Manage databases and tables"_ustr,
+            u"eSign — Coming soon"_ustr,
+            u"PDF — Coming soon"_ustr,
+            u"Math — Create and edit mathematical equations"_ustr
+        };
+        if (mnHoveredCard >= 0 && mnHoveredCard < CARD_COUNT)
+            return aTips[mnHoveredCard];
+        return OUString();
     }
 
     virtual bool MouseMove(const MouseEvent& rMEvt) override
     {
-        int nHit = rMEvt.IsLeaveWindow() ? -1 : HitTest(rMEvt.GetPosPixel());
-        if (nHit >= 0 && !maEnabled[nHit])
-            nHit = -1;
+        const int nHit = rMEvt.IsLeaveWindow() ? -1 : HitTest(rMEvt.GetPosPixel());
         if (nHit != mnHoveredCard)
         {
             mnHoveredCard = nHit;
             Invalidate();
         }
-        SetPointer(nHit >= 0 ? PointerStyle::RefHand : PointerStyle::Arrow);
+        SetPointer(IsCardInteractive(nHit) ? PointerStyle::RefHand : PointerStyle::Arrow);
         return false;
     }
 
@@ -788,8 +1122,8 @@ public:
     {
         if (rMEvt.IsLeft())
         {
-            int nHit = HitTest(rMEvt.GetPosPixel());
-            if (nHit >= 0 && maEnabled[nHit])
+            const int nHit = HitTest(rMEvt.GetPosPixel());
+            if (IsCardInteractive(nHit))
             {
                 mnFocusedCard = nHit;
                 mrOwner.triggerCreateApp(nHit);
@@ -801,20 +1135,32 @@ public:
 
     virtual bool KeyInput(const KeyEvent& rKEvt) override
     {
+        static constexpr std::array<int, 6> aInteractiveOrder = { 0, 1, 2, 4, 5, 8 };
+        auto findPos = [&](int nCard) -> int {
+            for (int k = 0; k < static_cast<int>(aInteractiveOrder.size()); ++k)
+            {
+                if (aInteractiveOrder[k] == nCard)
+                    return k;
+            }
+            return 0;
+        };
+
         sal_uInt16 nCode = rKEvt.GetKeyCode().GetCode();
-        if (nCode == KEY_RIGHT)
+        if (nCode == KEY_RIGHT || nCode == KEY_DOWN)
         {
-            mnFocusedCard = (mnFocusedCard + 1) % 4;
+            const int nPos = findPos(mnFocusedCard);
+            mnFocusedCard = aInteractiveOrder[(nPos + 1) % aInteractiveOrder.size()];
             Invalidate();
             return true;
         }
-        if (nCode == KEY_LEFT)
+        if (nCode == KEY_LEFT || nCode == KEY_UP)
         {
-            mnFocusedCard = (mnFocusedCard + 3) % 4;
+            const int nPos = findPos(mnFocusedCard);
+            mnFocusedCard = aInteractiveOrder[(nPos + aInteractiveOrder.size() - 1) % aInteractiveOrder.size()];
             Invalidate();
             return true;
         }
-        if ((nCode == KEY_RETURN || nCode == KEY_SPACE) && maEnabled[mnFocusedCard])
+        if ((nCode == KEY_RETURN || nCode == KEY_SPACE) && IsCardInteractive(mnFocusedCard))
         {
             mrOwner.triggerCreateApp(mnFocusedCard);
             return true;
@@ -826,60 +1172,111 @@ public:
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
         rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+        mfScale = GetScale(rRenderContext);
         const Size aSz = GetOutputSizePixel();
 
         FillSolidRect(rRenderContext, tools::Rectangle(Point(0, 0), aSz), COL_SURFACE_WHITE);
 
         // Section heading
-        rRenderContext.SetFont(MakeUiFont(17, WEIGHT_BOLD));
+        rRenderContext.SetFont(MakeUiFont(Sx(17, mfScale), WEIGHT_BOLD));
         rRenderContext.SetTextColor(COL_TEXT_PRIMARY);
-        rRenderContext.DrawText(tools::Rectangle(Point(28, 14), Size(300, 26)), u"Create New"_ustr,
+        rRenderContext.DrawText(tools::Rectangle(Point(Sx(24, mfScale), Sx(4, mfScale)), Size(Sx(280, mfScale), Sx(24, mfScale))), u"Applications"_ustr,
                                 DrawTextFlags::Left | DrawTextFlags::VCenter);
 
-        static const std::array<Color, 4> aAccents = { COL_CARD_DOCS, COL_CARD_SHEET, COL_CARD_SLIDE, COL_CARD_FLOW };
-        static const std::array<OUString, 4> aTitles = { u"Docs"_ustr, u"Spreadsheet"_ustr, u"SlideShows"_ustr, u"FlowCharts"_ustr };
-        static const std::array<OUString, 4> aSubs = {
+        static const std::array<Color, CARD_COUNT> aAccents = {
+            COL_CARD_DOCS, COL_CARD_SHEET, COL_CARD_SLIDE,
+            COL_CARD_EMAIL, COL_CARD_DESIGN, COL_CARD_DB,
+            COL_CARD_ESIGN, COL_CARD_PDF, COL_CARD_MATH
+        };
+        static const std::array<OUString, CARD_COUNT> aTitles = {
+            u"Docs"_ustr, u"Spreadsheet"_ustr, u"SlideShows"_ustr,
+            u"eMail"_ustr, u"Design"_ustr, u"Database"_ustr,
+            u"eSign"_ustr, u"PDF"_ustr, u"Math"_ustr
+        };
+        static const std::array<OUString, CARD_COUNT> aSubsWide = {
             u"Create text documents"_ustr,
             u"Work with data and tables"_ustr,
             u"Create presentations"_ustr,
-            u"Design diagrams and flows"_ustr
+            u"Read and write email"_ustr,
+            u"Create drawings, diagrams, and graphics"_ustr,
+            u"Manage databases and tables"_ustr,
+            u"Sign and send documents"_ustr,
+            u"View and edit PDFs"_ustr,
+            u"Create and edit mathematical equations"_ustr
+        };
+        static const std::array<OUString, CARD_COUNT> aSubsCompact = {
+            u"Text documents"_ustr,
+            u"Data & tables"_ustr,
+            u"Presentations"_ustr,
+            u"Read & write email"_ustr,
+            u"Drawings & graphics"_ustr,
+            u"Databases & tables"_ustr,
+            u"Sign & send docs"_ustr,
+            u"View and edit PDFs"_ustr,
+            u"Math equations"_ustr
         };
 
-        for (int i = 0; i < 4; ++i)
+        const OUString sComingSoon = u"Coming soon"_ustr;
+        rRenderContext.SetFont(MakeUiFont(Sx(10, mfScale), WEIGHT_SEMIBOLD));
+        const tools::Long nBadgeW = rRenderContext.GetTextWidth(sComingSoon) + Sx(14, mfScale);
+        const tools::Long nBadgeH = Sx(19, mfScale);
+
+        for (int i = 0; i < CARD_COUNT; ++i)
         {
             const tools::Rectangle aCard = GetCardRect(i);
-            const bool bHover = (i == mnHoveredCard);
-            const bool bFocus = HasFocus() && (i == mnFocusedCard);
+            const bool bComingSoon = IsComingSoonCard(i);
+            const bool bEnabled = bComingSoon || maEnabled[i];
+            const bool bHover = IsCardInteractive(i) && (i == mnHoveredCard);
+            const bool bFocus = IsCardInteractive(i) && HasFocus() && (i == mnFocusedCard);
 
             // Subtle drop elevation under card + crisp rounded white card
-            tools::Rectangle aShadow(Point(aCard.Left() + 1, aCard.Top() + 2), Size(aCard.GetWidth(), aCard.GetHeight()));
-            DrawRoundedBox(rRenderContext, aShadow, 8.0, Color(0xEC, 0xF0, 0xF5), COL_TRANSPARENT, 0.0);
+            tools::Rectangle aShadow(Point(aCard.Left() + Sx(1, mfScale), aCard.Top() + Sx(2, mfScale)), Size(aCard.GetWidth(), aCard.GetHeight()));
+            DrawRoundedBox(rRenderContext, aShadow, 8.0 * mfScale, Color(0xEC, 0xF0, 0xF5), COL_TRANSPARENT, 0.0);
 
-            DrawRoundedBox(rRenderContext, aCard, 8.0,
+            DrawRoundedBox(rRenderContext, aCard, 8.0 * mfScale,
                            bHover ? COL_SURFACE_SUBTLE : COL_SURFACE_WHITE,
-                           (bHover || bFocus) ? COL_BORDER_HOVER : COL_BORDER, 1.2);
+                           (bHover || bFocus) ? COL_BORDER_HOVER : COL_BORDER, 1.2 * mfScale);
 
-            // Crisp 3.5px colored bottom accent strip inside card
-            tools::Rectangle aBar(Point(aCard.Left() + 4, aCard.Bottom() - 4), Size(std::max<tools::Long>(10, aCard.GetWidth() - 8), 4));
-            DrawRoundedBox(rRenderContext, aBar, 2.0, maEnabled[i] ? aAccents[i] : COL_TEXT_SUBTLE, COL_TRANSPARENT, 0.0);
+            // Crisp 4px colored bottom accent strip inside card
+            const tools::Long nBarH = std::max<tools::Long>(3, Sx(4, mfScale));
+            tools::Rectangle aBar(Point(aCard.Left() + Sx(2, mfScale), aCard.Bottom() - nBarH),
+                                  Size(std::max<tools::Long>(10, aCard.GetWidth() - Sx(4, mfScale)), nBarH));
+            DrawRoundedBox(rRenderContext, aBar, 2.0 * mfScale, bEnabled ? aAccents[i] : COL_TEXT_SUBTLE, COL_TRANSPARENT, 0.0);
+
+            if (bComingSoon)
+            {
+                const tools::Rectangle aBadge(
+                    Point(aCard.Right() - nBadgeW - Sx(8, mfScale), aCard.Top() + Sx(8, mfScale)),
+                    Size(nBadgeW, nBadgeH));
+                DrawRoundedBox(rRenderContext, aBadge, 9.0 * mfScale, COL_BADGE_BG, COL_TRANSPARENT, 0.0);
+                rRenderContext.SetFont(MakeUiFont(Sx(10, mfScale), WEIGHT_SEMIBOLD));
+                rRenderContext.SetTextColor(COL_BADGE_TEXT);
+                rRenderContext.DrawText(aBadge, sComingSoon, DrawTextFlags::Center | DrawTextFlags::VCenter);
+            }
 
             const int nCx = static_cast<int>((aCard.Left() + aCard.Right()) / 2);
             const int nCy = static_cast<int>(aCard.Top() + aCard.GetHeight() * 0.34);
-            DrawCardIcon(rRenderContext, i, nCx, nCy, maEnabled[i] ? aAccents[i] : COL_TEXT_SUBTLE);
+            DrawCardIcon(rRenderContext, i, nCx, nCy, bEnabled ? aAccents[i] : COL_TEXT_SUBTLE);
 
-            rRenderContext.SetFont(MakeUiFont(15, WEIGHT_BOLD));
-            rRenderContext.SetTextColor(maEnabled[i] ? COL_TEXT_PRIMARY : COL_TEXT_SUBTLE);
+            const tools::Long nTextPad = Sx(8, mfScale);
+            const tools::Long nMaxTextW = std::max<tools::Long>(40, aCard.GetWidth() - 2 * nTextPad);
+
+            rRenderContext.SetFont(MakeUiFont(Sx(15, mfScale), WEIGHT_BOLD));
+            rRenderContext.SetTextColor(bEnabled ? COL_TEXT_PRIMARY : COL_TEXT_SUBTLE);
+            const OUString sDispTitle = rRenderContext.GetEllipsisString(aTitles[i], nMaxTextW, DrawTextFlags::EndEllipsis);
             rRenderContext.DrawText(
-                tools::Rectangle(Point(aCard.Left() + 8, aCard.Top() + static_cast<tools::Long>(aCard.GetHeight() * 0.57)),
-                                 Size(aCard.GetWidth() - 16, 22)),
-                aTitles[i], DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+                tools::Rectangle(Point(aCard.Left() + nTextPad, aCard.Top() + static_cast<tools::Long>(aCard.GetHeight() * 0.58)),
+                                 Size(nMaxTextW, Sx(20, mfScale))),
+                sDispTitle, DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::Clip);
 
-            rRenderContext.SetFont(MakeUiFont(12, WEIGHT_NORMAL));
+            rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_NORMAL));
             rRenderContext.SetTextColor(COL_TEXT_MUTED);
+            const OUString& rRawSub = (aCard.GetWidth() < Sx(210, mfScale)) ? aSubsCompact[i] : aSubsWide[i];
+            const OUString sDispSub = rRenderContext.GetEllipsisString(rRawSub, nMaxTextW, DrawTextFlags::EndEllipsis);
             rRenderContext.DrawText(
-                tools::Rectangle(Point(aCard.Left() + 8, aCard.Top() + static_cast<tools::Long>(aCard.GetHeight() * 0.73)),
-                                 Size(aCard.GetWidth() - 16, 20)),
-                aSubs[i], DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+                tools::Rectangle(Point(aCard.Left() + nTextPad, aCard.Top() + static_cast<tools::Long>(aCard.GetHeight() * 0.76)),
+                                 Size(nMaxTextW, Sx(18, mfScale))),
+                sDispSub, DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::Clip);
         }
     }
 };
@@ -892,11 +1289,13 @@ class RecentHeaderWidget final : public weld::CustomWidgetController
 private:
     BackingWindow& mrOwner;
     bool mbHoverLink = false;
+    double mfScale = 1.0;
 
     tools::Rectangle GetLinkRect() const
     {
         const Size aSz = GetOutputSizePixel();
-        return tools::Rectangle(Point(std::max<tools::Long>(180, aSz.Width() - 115), 6), Size(88, aSz.Height() - 10));
+        return tools::Rectangle(Point(std::max<tools::Long>(Sx(160, mfScale), aSz.Width() - Sx(112, mfScale)), Sx(4, mfScale)),
+                                Size(Sx(88, mfScale), std::max<tools::Long>(Sx(20, mfScale), aSz.Height() - Sx(8, mfScale))));
     }
 
 public:
@@ -908,8 +1307,9 @@ public:
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_SURFACE_WHITE));
-        pDrawingArea->set_size_request(-1, 38);
+        pDrawingArea->set_size_request(-1, Sx(34, mfScale));
     }
 
     virtual bool MouseMove(const MouseEvent& rMEvt) override
@@ -948,15 +1348,16 @@ public:
     virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&) override
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
+        mfScale = GetScale(rRenderContext);
         const Size aSz = GetOutputSizePixel();
         FillSolidRect(rRenderContext, tools::Rectangle(Point(0, 0), aSz), COL_SURFACE_WHITE);
 
-        rRenderContext.SetFont(MakeUiFont(17, WEIGHT_BOLD));
+        rRenderContext.SetFont(MakeUiFont(Sx(16, mfScale), WEIGHT_BOLD));
         rRenderContext.SetTextColor(COL_TEXT_PRIMARY);
-        rRenderContext.DrawText(tools::Rectangle(Point(28, 4), Size(260, aSz.Height() - 6)), u"Recent Files"_ustr,
+        rRenderContext.DrawText(tools::Rectangle(Point(Sx(24, mfScale), Sx(2, mfScale)), Size(Sx(240, mfScale), aSz.Height() - Sx(4, mfScale))), u"Recent Files"_ustr,
                                 DrawTextFlags::Left | DrawTextFlags::VCenter);
 
-        rRenderContext.SetFont(MakeUiFont(13, mbHoverLink ? WEIGHT_BOLD : WEIGHT_SEMIBOLD));
+        rRenderContext.SetFont(MakeUiFont(Sx(13, mfScale), mbHoverLink ? WEIGHT_BOLD : WEIGHT_SEMIBOLD));
         rRenderContext.SetTextColor(COL_LINK_BLUE);
         rRenderContext.DrawText(GetLinkRect(), u"View All >"_ustr,
                                 DrawTextFlags::Right | DrawTextFlags::VCenter);
@@ -984,20 +1385,24 @@ private:
     int mnHoveredRow = -1;
     bool mbHoveredRemove = false;
     int mnFocusedRow = 0;
+    double mfScale = 1.0;
 
-    static constexpr tools::Long gnHeaderH = 34;
-    static constexpr tools::Long gnRowH = 44;
+    tools::Long HeaderHeight() const { return Sx(32, mfScale); }
+    tools::Long RowHeight() const { return Sx(40, mfScale); }
 
     tools::Rectangle GetCardRect() const
     {
         const Size aSz = GetOutputSizePixel();
-        const tools::Long nW = std::max<tools::Long>(200, aSz.Width() - 56);
-        const tools::Long nMaxH = std::max<tools::Long>(90, aSz.Height() - 18);
-        const size_t nFit = static_cast<size_t>(std::max<tools::Long>(1, (nMaxH - gnHeaderH) / gnRowH));
+        const tools::Long nPadX = Sx(24, mfScale);
+        const tools::Long nW = std::max<tools::Long>(Sx(200, mfScale), aSz.Width() - 2 * nPadX);
+        const tools::Long nMaxH = std::max<tools::Long>(Sx(80, mfScale), aSz.Height() - Sx(14, mfScale));
+        const tools::Long nHdrH = HeaderHeight();
+        const tools::Long nRowH = RowHeight();
+        const size_t nFit = static_cast<size_t>(std::max<tools::Long>(1, (nMaxH - nHdrH) / nRowH));
         const size_t nVisibleRows = maRows.empty() ? 1 : std::min(maRows.size(), nFit);
-        const tools::Long nH = maRows.empty() ? std::min<tools::Long>(nMaxH, 92)
-                                              : std::min<tools::Long>(nMaxH, gnHeaderH + static_cast<tools::Long>(nVisibleRows) * gnRowH);
-        return tools::Rectangle(Point(28, 4), Size(nW, nH));
+        const tools::Long nH = maRows.empty() ? std::min<tools::Long>(nMaxH, Sx(82, mfScale))
+                                              : std::min<tools::Long>(nMaxH, nHdrH + static_cast<tools::Long>(nVisibleRows) * nRowH);
+        return tools::Rectangle(Point(nPadX, Sx(2, mfScale)), Size(nW, nH));
     }
 
     size_t VisibleRowCount() const
@@ -1005,21 +1410,23 @@ private:
         if (maRows.empty())
             return 0;
         const tools::Rectangle aCard = GetCardRect();
-        return static_cast<size_t>(std::max<tools::Long>(0, (aCard.GetHeight() - gnHeaderH) / gnRowH));
+        return static_cast<size_t>(std::max<tools::Long>(0, (aCard.GetHeight() - HeaderHeight()) / RowHeight()));
     }
 
     tools::Rectangle GetRowRect(size_t i) const
     {
         const tools::Rectangle aCard = GetCardRect();
+        const tools::Long nRowH = RowHeight();
         return tools::Rectangle(
-            Point(aCard.Left() + 1, aCard.Top() + gnHeaderH + static_cast<tools::Long>(i) * gnRowH),
-            Size(aCard.GetWidth() - 2, gnRowH));
+            Point(aCard.Left() + 1, aCard.Top() + HeaderHeight() + static_cast<tools::Long>(i) * nRowH),
+            Size(aCard.GetWidth() - 2, nRowH));
     }
 
     tools::Rectangle GetRemoveRect(size_t i) const
     {
         const tools::Rectangle aRow = GetRowRect(i);
-        return tools::Rectangle(Point(aRow.Right() - 34, aRow.Top() + 6), Size(28, aRow.GetHeight() - 12));
+        return tools::Rectangle(Point(aRow.Right() - Sx(34, mfScale), aRow.Top() + Sx(5, mfScale)),
+                                Size(Sx(28, mfScale), aRow.GetHeight() - Sx(10, mfScale)));
     }
 
 public:
@@ -1075,6 +1482,7 @@ public:
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_SURFACE_WHITE));
     }
 
@@ -1170,45 +1578,50 @@ public:
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
         rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+        mfScale = GetScale(rRenderContext);
 
         const Size aSz = GetOutputSizePixel();
         FillSolidRect(rRenderContext, tools::Rectangle(Point(0, 0), aSz), COL_SURFACE_WHITE);
 
+        const tools::Long nHdrH = HeaderHeight();
+        const tools::Long nRowH = RowHeight();
         const tools::Rectangle aCard = GetCardRect();
-        DrawRoundedBox(rRenderContext, aCard, 8.0, COL_SURFACE_WHITE, COL_BORDER, 1.2);
+        DrawRoundedBox(rRenderContext, aCard, 8.0 * mfScale, COL_SURFACE_WHITE, COL_BORDER, 1.2 * mfScale);
 
         // Header strip
-        tools::Rectangle aHdr(Point(aCard.Left() + 1, aCard.Top() + 1), Size(aCard.GetWidth() - 2, gnHeaderH - 1));
-        DrawRoundedBox(rRenderContext, aHdr, 6.0, COL_SURFACE_SUBTLE, COL_TRANSPARENT, 0.0);
-        DrawStrokePoly(rRenderContext, { { static_cast<double>(aCard.Left() + 1), static_cast<double>(aCard.Top() + gnHeaderH) },
-                                         { static_cast<double>(aCard.Right() - 1), static_cast<double>(aCard.Top() + gnHeaderH) } },
+        tools::Rectangle aHdr(Point(aCard.Left() + 1, aCard.Top() + 1), Size(aCard.GetWidth() - 2, nHdrH - 1));
+        DrawRoundedBox(rRenderContext, aHdr, 6.0 * mfScale, COL_SURFACE_SUBTLE, COL_TRANSPARENT, 0.0);
+        DrawStrokePoly(rRenderContext, { { static_cast<double>(aCard.Left() + 1), static_cast<double>(aCard.Top() + nHdrH) },
+                                         { static_cast<double>(aCard.Right() - 1), static_cast<double>(aCard.Top() + nHdrH) } },
                        false, COL_BORDER, 1.0);
 
         const tools::Long nW = aCard.GetWidth();
-        const tools::Long nColNameX = aCard.Left() + 18;
+        const tools::Long nColNameX = aCard.Left() + Sx(18, mfScale);
         const tools::Long nColLocX = aCard.Left() + static_cast<tools::Long>(nW * 0.36);
         const tools::Long nColModX = aCard.Left() + static_cast<tools::Long>(nW * 0.72);
 
-        rRenderContext.SetFont(MakeUiFont(12, WEIGHT_SEMIBOLD));
+        rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_SEMIBOLD));
         rRenderContext.SetTextColor(COL_TEXT_MUTED);
-        rRenderContext.DrawText(tools::Rectangle(Point(nColNameX, aHdr.Top()), Size(nColLocX - nColNameX - 8, gnHeaderH)),
+        rRenderContext.DrawText(tools::Rectangle(Point(nColNameX, aHdr.Top()), Size(nColLocX - nColNameX - Sx(8, mfScale), nHdrH)),
                                 u"Name"_ustr, DrawTextFlags::Left | DrawTextFlags::VCenter);
-        rRenderContext.DrawText(tools::Rectangle(Point(nColLocX, aHdr.Top()), Size(nColModX - nColLocX - 8, gnHeaderH)),
+        rRenderContext.DrawText(tools::Rectangle(Point(nColLocX, aHdr.Top()), Size(nColModX - nColLocX - Sx(8, mfScale), nHdrH)),
                                 u"Location"_ustr, DrawTextFlags::Left | DrawTextFlags::VCenter);
-        rRenderContext.DrawText(tools::Rectangle(Point(nColModX, aHdr.Top()), Size(aCard.Right() - nColModX - 38, gnHeaderH)),
+        rRenderContext.DrawText(tools::Rectangle(Point(nColModX, aHdr.Top()), Size(std::max<tools::Long>(40, aCard.Right() - nColModX - Sx(38, mfScale)), nHdrH)),
                                 u"Last Modified"_ustr, DrawTextFlags::Left | DrawTextFlags::VCenter);
 
         if (maRows.empty())
         {
-            rRenderContext.SetFont(MakeUiFont(13, WEIGHT_NORMAL));
+            rRenderContext.SetFont(MakeUiFont(Sx(13, mfScale), WEIGHT_NORMAL, true));
             rRenderContext.SetTextColor(COL_TEXT_SUBTLE);
-            tools::Rectangle aEmpty(Point(aCard.Left() + 16, aCard.Top() + gnHeaderH), Size(aCard.GetWidth() - 32, aCard.GetHeight() - gnHeaderH));
-            rRenderContext.DrawText(aEmpty, u"No recent files yet — create a document above or click Open to browse."_ustr,
+            tools::Rectangle aEmpty(Point(aCard.Left() + Sx(16, mfScale), aCard.Top() + nHdrH),
+                                    Size(aCard.GetWidth() - Sx(32, mfScale), aCard.GetHeight() - nHdrH));
+            rRenderContext.DrawText(aEmpty, u"Your recent files will appear here."_ustr,
                                     DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
             return;
         }
 
         const size_t nVis = std::min(maRows.size(), VisibleRowCount());
+        const tools::Long nMiniIcon = Sx(20, mfScale);
         for (size_t i = 0; i < nVis; ++i)
         {
             const RecentRow& rRow = maRows[i];
@@ -1220,52 +1633,55 @@ public:
                 FillSolidRect(rRenderContext, aRow, COL_SURFACE_HOVER);
 
             if (i + 1 < nVis)
-                DrawStrokePoly(rRenderContext, { { static_cast<double>(aRow.Left() + 12), static_cast<double>(aRow.Bottom()) },
-                                                 { static_cast<double>(aRow.Right() - 12), static_cast<double>(aRow.Bottom()) } },
+                DrawStrokePoly(rRenderContext, { { static_cast<double>(aRow.Left() + Sx(12, mfScale)), static_cast<double>(aRow.Bottom()) },
+                                                 { static_cast<double>(aRow.Right() - Sx(12, mfScale)), static_cast<double>(aRow.Bottom()) } },
                                false, Color(0xEC, 0xF0, 0xF5), 1.0);
 
-            const int nIconY = static_cast<int>(aRow.Top() + (gnRowH - 20) / 2);
-            DrawMiniDocIcon(rRenderContext, nColNameX, nIconY, 20, rRow.sExt);
+            const int nIconY = static_cast<int>(aRow.Top() + (nRowH - nMiniIcon) / 2);
+            DrawMiniDocIcon(rRenderContext, nColNameX, nIconY, nMiniIcon, rRow.sExt);
 
-            const tools::Long nNameMaxW = std::max<tools::Long>(40, nColLocX - nColNameX - 42);
+            const tools::Long nNameMaxW = std::max<tools::Long>(Sx(40, mfScale), nColLocX - nColNameX - Sx(42, mfScale));
             const OUString sDispName = rRenderContext.GetEllipsisString(rRow.sName, nNameMaxW, DrawTextFlags::EndEllipsis);
-            rRenderContext.SetFont(MakeUiFont(13, WEIGHT_SEMIBOLD));
+            rRenderContext.SetFont(MakeUiFont(Sx(13, mfScale), WEIGHT_SEMIBOLD));
             rRenderContext.SetTextColor(COL_TEXT_PRIMARY);
             rRenderContext.DrawText(
-                tools::Rectangle(Point(nColNameX + 28, aRow.Top()), Size(nNameMaxW, gnRowH)),
+                tools::Rectangle(Point(nColNameX + Sx(28, mfScale), aRow.Top()), Size(nNameMaxW, nRowH)),
                 sDispName, DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::Clip);
 
+            const double fFolderTop = aRow.Top() + nRowH * 0.36;
             DrawStrokePoly(rRenderContext, {
-                { static_cast<double>(nColLocX), aRow.Top() + 17.0 },
-                { static_cast<double>(nColLocX + 4.5), aRow.Top() + 17.0 },
-                { static_cast<double>(nColLocX + 6.0), aRow.Top() + 19.0 },
-                { static_cast<double>(nColLocX + 13.0), aRow.Top() + 19.0 },
-                { static_cast<double>(nColLocX + 13.0), aRow.Top() + 27.0 },
-                { static_cast<double>(nColLocX), aRow.Top() + 27.0 }
-            }, true, COL_TEXT_SUBTLE, 1.3);
+                { static_cast<double>(nColLocX), fFolderTop },
+                { static_cast<double>(nColLocX + 4.5 * mfScale), fFolderTop },
+                { static_cast<double>(nColLocX + 6.0 * mfScale), fFolderTop + 2.0 * mfScale },
+                { static_cast<double>(nColLocX + 13.0 * mfScale), fFolderTop + 2.0 * mfScale },
+                { static_cast<double>(nColLocX + 13.0 * mfScale), fFolderTop + 10.0 * mfScale },
+                { static_cast<double>(nColLocX), fFolderTop + 10.0 * mfScale }
+            }, true, COL_TEXT_SUBTLE, 1.3 * mfScale);
 
-            const tools::Long nLocMaxW = std::max<tools::Long>(40, nColModX - nColLocX - 38);
-            const tools::Long nModMaxW = std::max<tools::Long>(40, aCard.Right() - nColModX - 44);
-            rRenderContext.SetFont(MakeUiFont(12, WEIGHT_NORMAL));
+            const tools::Long nLocMaxW = std::max<tools::Long>(Sx(40, mfScale), nColModX - nColLocX - Sx(38, mfScale));
+            const tools::Long nModMaxW = std::max<tools::Long>(Sx(40, mfScale), aCard.Right() - nColModX - Sx(44, mfScale));
+            rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_NORMAL));
             rRenderContext.SetTextColor(COL_TEXT_MUTED);
             const OUString sDispLoc = rRenderContext.GetEllipsisString(rRow.sLocation, nLocMaxW, DrawTextFlags::PathEllipsis);
             rRenderContext.DrawText(
-                tools::Rectangle(Point(nColLocX + 20, aRow.Top()), Size(nLocMaxW, gnRowH)),
+                tools::Rectangle(Point(nColLocX + Sx(20, mfScale), aRow.Top()), Size(nLocMaxW, nRowH)),
                 sDispLoc, DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::Clip);
 
             const OUString sDispMod = rRenderContext.GetEllipsisString(rRow.sModified, nModMaxW, DrawTextFlags::EndEllipsis);
             rRenderContext.DrawText(
-                tools::Rectangle(Point(nColModX, aRow.Top()), Size(nModMaxW, gnRowH)),
+                tools::Rectangle(Point(nColModX, aRow.Top()), Size(nModMaxW, nRowH)),
                 sDispMod, DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::Clip);
 
             const tools::Rectangle aRemRect = GetRemoveRect(i);
             const Color aDotCol = (bHover && mbHoveredRemove) ? COL_RED_BRAND : COL_TEXT_SUBTLE;
             const tools::Long nDotX = (aRemRect.Left() + aRemRect.Right()) / 2;
             const tools::Long nDotY = (aRemRect.Top() + aRemRect.Bottom()) / 2;
+            const tools::Long nDotSz = std::max<tools::Long>(2, Sx(3, mfScale));
+            const tools::Long nDotStep = Sx(4, mfScale);
             rRenderContext.SetLineColor();
             rRenderContext.SetFillColor(aDotCol);
-            for (int d = -4; d <= 4; d += 4)
-                rRenderContext.DrawRect(tools::Rectangle(Point(nDotX - 1, nDotY + d - 1), Size(3, 3)));
+            for (tools::Long d = -nDotStep; d <= nDotStep; d += nDotStep)
+                rRenderContext.DrawRect(tools::Rectangle(Point(nDotX - nDotSz / 2, nDotY + d - nDotSz / 2), Size(nDotSz, nDotSz)));
         }
     }
 };
@@ -1278,6 +1694,7 @@ class FooterWidget final : public weld::CustomWidgetController
 private:
     BackingWindow& mrOwner;
     bool mbHovered = false;
+    double mfScale = 1.0;
 
 public:
     explicit FooterWidget(BackingWindow& rOwner)
@@ -1288,8 +1705,9 @@ public:
     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override
     {
         weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+        mfScale = GetScale(pDrawingArea);
         pDrawingArea->get_ref_device().SetBackground(Wallpaper(COL_FOOTER_BG));
-        pDrawingArea->set_size_request(-1, 36);
+        pDrawingArea->set_size_request(-1, Sx(34, mfScale));
         SetPointer(PointerStyle::RefHand);
     }
 
@@ -1326,6 +1744,7 @@ public:
     {
         auto popIt = rRenderContext.ScopedPush(vcl::PushFlags::ALL);
         rRenderContext.SetAntialiasing(AntialiasingFlags::Enable);
+        mfScale = GetScale(rRenderContext);
         const Size aSz = GetOutputSizePixel();
 
         FillSolidRect(rRenderContext, tools::Rectangle(Point(0, 0), aSz),
@@ -1335,24 +1754,29 @@ public:
 
         // Info (i) badge
         const tools::Long nCy = aSz.Height() / 2;
-        DrawCircleStroke(rRenderContext, 26.0, static_cast<double>(nCy), 7.5, COL_TEXT_MUTED, 1.4);
-        FillSolidRect(rRenderContext, tools::Rectangle(Point(25, nCy - 4), Size(2, 2)), COL_TEXT_MUTED);
-        FillSolidRect(rRenderContext, tools::Rectangle(Point(25, nCy - 1), Size(2, 6)), COL_TEXT_MUTED);
+        const tools::Long nBadgeCx = Sx(24, mfScale);
+        const Color aInfoBlue(0x25, 0x63, 0xEB);
+        DrawCircleStroke(rRenderContext, static_cast<double>(nBadgeCx), static_cast<double>(nCy), 7.0 * mfScale, aInfoBlue, 1.5 * mfScale);
+        FillSolidRect(rRenderContext, tools::Rectangle(Point(nBadgeCx - 1, nCy - Sx(4, mfScale)), Size(Sx(2, mfScale), Sx(2, mfScale))), aInfoBlue);
+        FillSolidRect(rRenderContext, tools::Rectangle(Point(nBadgeCx - 1, nCy - Sx(1, mfScale)), Size(Sx(2, mfScale), Sx(6, mfScale))), aInfoBlue);
 
         const OUString sVer = u"OfficeStudio AI v1.0.0"_ustr;
-        rRenderContext.SetFont(MakeUiFont(12, WEIGHT_BOLD));
+        rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_BOLD));
         rRenderContext.SetTextColor(COL_TEXT_PRIMARY);
         const tools::Long nVerW = rRenderContext.GetTextWidth(sVer);
-        rRenderContext.DrawText(tools::Rectangle(Point(42, 0), Size(nVerW + 8, aSz.Height())), sVer,
+        const tools::Long nVerX = Sx(40, mfScale);
+        rRenderContext.DrawText(tools::Rectangle(Point(nVerX, 0), Size(nVerW + Sx(8, mfScale), aSz.Height())), sVer,
                                 DrawTextFlags::Left | DrawTextFlags::VCenter);
 
-        const tools::Long nPipeX = 42 + nVerW + 12;
-        DrawStrokePoly(rRenderContext, { { static_cast<double>(nPipeX), 10.0 }, { static_cast<double>(nPipeX), static_cast<double>(aSz.Height() - 10) } },
+        const tools::Long nPipeX = nVerX + nVerW + Sx(12, mfScale);
+        DrawStrokePoly(rRenderContext, { { static_cast<double>(nPipeX), static_cast<double>(Sx(9, mfScale)) },
+                                         { static_cast<double>(nPipeX), static_cast<double>(aSz.Height() - Sx(9, mfScale)) } },
                        false, Color(0xCB, 0xD5, 0xE1), 1.0);
 
-        rRenderContext.SetFont(MakeUiFont(12, WEIGHT_NORMAL));
+        rRenderContext.SetFont(MakeUiFont(Sx(12, mfScale), WEIGHT_NORMAL));
         rRenderContext.SetTextColor(COL_TEXT_MUTED);
-        rRenderContext.DrawText(tools::Rectangle(Point(nPipeX + 12, 0), Size(std::max<tools::Long>(100, aSz.Width() - nPipeX - 24), aSz.Height())),
+        rRenderContext.DrawText(tools::Rectangle(Point(nPipeX + Sx(12, mfScale), 0),
+                                                 Size(std::max<tools::Long>(Sx(100, mfScale), aSz.Width() - nPipeX - Sx(24, mfScale)), aSz.Height())),
                                 u"Built on the LibreOffice engine"_ustr,
                                 DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
     }
@@ -1583,6 +2007,7 @@ void BackingWindow::initControls()
     mxRecentButton->connect_toggled(LINK(this, BackingWindow, ToggleHdl));
     mxTemplateButton->connect_toggled(LINK(this, BackingWindow, ToggleHdl));
 
+    mxFilter->set_active_id(u"filter_none"_ustr);
     mxFilter->connect_changed(LINK(this, BackingWindow, FilterHdl));
     mxActions->connect_selected(LINK(this, BackingWindow, MenuSelectHdl));
 
@@ -1609,6 +2034,13 @@ void BackingWindow::activateMode(StartCenterMode eMode)
     }
     else if (eMode == StartCenterMode::Recent)
     {
+        if (mxFilter->find_id(u"filter_database"_ustr) == -1)
+            mxFilter->append(u"filter_database"_ustr, u"Database"_ustr);
+        if (mxFilter->find_id(u"filter_math"_ustr) == -1)
+            mxFilter->append(u"filter_math"_ustr, u"Math"_ustr);
+        if (mxFilter->get_active() < 0)
+            mxFilter->set_active_id(u"filter_none"_ustr);
+
         mxHomeSection->set_visible(false);
         mxHomeRecent->Hide();
         mxScrollLocal->set_visible(false);
@@ -1623,6 +2055,14 @@ void BackingWindow::activateMode(StartCenterMode eMode)
     }
     else // Templates
     {
+        if (mxFilter->get_active_id() == u"filter_database"
+            || mxFilter->get_active_id() == u"filter_math")
+            mxFilter->set_active_id(u"filter_none"_ustr);
+        if (mxFilter->find_id(u"filter_database"_ustr) != -1)
+            mxFilter->remove_id(u"filter_database"_ustr);
+        if (mxFilter->find_id(u"filter_math"_ustr) != -1)
+            mxFilter->remove_id(u"filter_math"_ustr);
+
         mxHomeSection->set_visible(false);
         mxHomeRecent->Hide();
         mxScrollRecent->set_visible(false);
@@ -1670,8 +2110,12 @@ void BackingWindow::triggerCreateApp(int nIndex)
         dispatchURL(u"private:factory/scalc"_ustr);
     else if (nIndex == 2)
         dispatchURL(u"private:factory/simpress?slot=6686"_ustr);
-    else if (nIndex == 3)
+    else if (nIndex == 4)
         dispatchURL(u"private:factory/sdraw"_ustr);
+    else if (nIndex == 5)
+        dispatchURL(u"private:factory/sdatabase?Interactive"_ustr);
+    else if (nIndex == 8)
+        dispatchURL(u"private:factory/smath"_ustr);
 }
 
 void BackingWindow::openRecentURL(const OUString& rURL, bool bReadOnly)
@@ -1718,10 +2162,11 @@ void BackingWindow::ApplyStyleSettings()
 {
     mxAllButtonsBox->set_background(COL_NAV_BG);
     mxRightBox->set_background(COL_SURFACE_WHITE);
+    mxActionsGrid->set_background(COL_SURFACE_WHITE);
     SetBackground(COL_SURFACE_WHITE);
 
-    set_width_request(920);
-    set_height_request(620);
+    set_width_request(880);
+    set_height_request(640);
 
     mxBrandImage->Invalidate();
     mxSidebarNav->Invalidate();
@@ -1746,7 +2191,7 @@ void BackingWindow::checkInstalledModules()
 {
     if (officecfg::Office::Common::Misc::ViewerAppMode::get())
     {
-        mxCreateCards->SetModuleStates(false, false, false, false);
+        mxCreateCards->SetModuleStates(false, false, false, false, false, false);
         return;
     }
 
@@ -1755,7 +2200,9 @@ void BackingWindow::checkInstalledModules()
         aModuleOpt.IsWriterInstalled(),
         aModuleOpt.IsCalcInstalled(),
         aModuleOpt.IsImpressInstalled(),
-        aModuleOpt.IsDrawInstalled());
+        aModuleOpt.IsDrawInstalled(),
+        aModuleOpt.IsDataBaseInstalled(),
+        aModuleOpt.IsMathInstalled());
 }
 
 bool BackingWindow::PreNotify(NotifyEvent& rNEvt)
@@ -1898,19 +2345,35 @@ IMPL_STATIC_LINK_NOARG(BackingWindow, ExtLinkClickHdl, weld::Button&, void)
 
 void BackingWindow::applyFilter()
 {
-    const int nFilter = mxFilter->get_active();
+    const OUString sFilterId = mxFilter->get_active_id();
     if (mxLocalView->IsVisible())
     {
-        FILTER_APPLICATION aFilter = static_cast<FILTER_APPLICATION>(nFilter);
+        FILTER_APPLICATION aFilter = FILTER_APPLICATION::NONE;
+        if (sFilterId == u"filter_writer")
+            aFilter = FILTER_APPLICATION::WRITER;
+        else if (sFilterId == u"filter_calc")
+            aFilter = FILTER_APPLICATION::CALC;
+        else if (sFilterId == u"filter_impress")
+            aFilter = FILTER_APPLICATION::IMPRESS;
+        else if (sFilterId == u"filter_draw")
+            aFilter = FILTER_APPLICATION::DRAW;
         mxLocalView->filterItems(ViewFilter_Application(aFilter));
     }
     else
     {
-        sfx2::ApplicationType aFilter;
-        if (nFilter == 0)
-            aFilter = sfx2::ApplicationType::TYPE_NONE;
-        else
-            aFilter = static_cast<sfx2::ApplicationType>(1 << (nFilter - 1));
+        sfx2::ApplicationType aFilter = sfx2::ApplicationType::TYPE_NONE;
+        if (sFilterId == u"filter_writer")
+            aFilter = sfx2::ApplicationType::TYPE_WRITER;
+        else if (sFilterId == u"filter_calc")
+            aFilter = sfx2::ApplicationType::TYPE_CALC;
+        else if (sFilterId == u"filter_impress")
+            aFilter = sfx2::ApplicationType::TYPE_IMPRESS;
+        else if (sFilterId == u"filter_draw")
+            aFilter = sfx2::ApplicationType::TYPE_DRAW;
+        else if (sFilterId == u"filter_database")
+            aFilter = sfx2::ApplicationType::TYPE_DATABASE;
+        else if (sFilterId == u"filter_math")
+            aFilter = sfx2::ApplicationType::TYPE_MATH;
         mxAllRecentThumbnails->setFilter(aFilter);
     }
 }
@@ -1937,11 +2400,11 @@ IMPL_LINK(BackingWindow, ClickHdl, weld::Button&, rButton, void)
     else if (&rButton == mxImpressAllButton.get())
         triggerCreateApp(2);
     else if (&rButton == mxDrawAllButton.get())
-        triggerCreateApp(3);
+        triggerCreateApp(4);
     else if (&rButton == mxDBAllButton.get())
-        dispatchURL(u"private:factory/sdatabase?Interactive"_ustr);
+        triggerCreateApp(5);
     else if (&rButton == mxMathAllButton.get())
-        dispatchURL(u"private:factory/smath"_ustr);
+        triggerCreateApp(8);
     else if (&rButton == mxOpenButton.get())
         triggerOpen();
     else if (&rButton == mxRemoteButton.get())
